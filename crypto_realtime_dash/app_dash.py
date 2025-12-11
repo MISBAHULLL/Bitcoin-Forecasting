@@ -1,6 +1,6 @@
 """
 Bitcoin Sentiment Forecasting Dashboard
-Clean White Theme - Modern Responsive UI
+Clean White Theme - Stable Layout
 SINTA 1 Research System
 """
 
@@ -17,6 +17,7 @@ import pandas as pd
 import numpy as np
 from datetime import datetime, timedelta
 import warnings
+import time
 
 warnings.filterwarnings('ignore')
 
@@ -32,6 +33,7 @@ from modules.indicators import compute_all_indicators
 from modules.arima_model import train_arima, train_arimax
 from modules.evaluation import compare_models
 from modules.interpretation import generate_interpretation
+from modules.news_aggregator import fetch_aggregated_news, get_upcoming_events, get_market_summary
 
 # Initialize Dash
 app = dash.Dash(
@@ -41,15 +43,17 @@ app = dash.Dash(
         'https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap'
     ],
     meta_tags=[{'name': 'viewport', 'content': 'width=device-width, initial-scale=1'}],
-    title='BTC Forecast Dashboard'
+    title='BTC Forecast Dashboard',
+    suppress_callback_exceptions=True
 )
 
 server = app.server
 
-# Clean White Theme Colors
+# Clean White Theme
 THEME = {
     'bg': '#ffffff',
     'card_bg': '#f8f9fa',
+    'card_bg_alt': '#ffffff',
     'text': '#212529',
     'text_muted': '#6c757d',
     'primary': '#0d6efd',
@@ -58,28 +62,33 @@ THEME = {
     'warning': '#ffc107',
     'info': '#0dcaf0',
     'border': '#dee2e6',
-    'shadow': '0 0.125rem 0.25rem rgba(0,0,0,0.075)'
+    'chart_bg': '#ffffff',
+    'grid': '#e9ecef'
 }
 
 
 # ============================================
-# GENERATE SAMPLE DATA (Fallback)
+# DATA LOADING WITH CACHING
 # ============================================
+
+_data_cache = {}
+_cache_time = 0
+CACHE_DURATION = 30
 
 def generate_sample_data(n=200):
     """Generate sample OHLCV data."""
-    np.random.seed(int(datetime.now().timestamp()) % 1000)
+    np.random.seed(42)
     
     dates = pd.date_range(end=datetime.now(), periods=n, freq='h')
     base = 97000
-    returns = np.random.randn(n) * 0.003
+    returns = np.random.randn(n) * 0.005
     prices = base * np.exp(np.cumsum(returns))
     
     df = pd.DataFrame({
         'timestamp': dates,
-        'open': prices * (1 + np.random.uniform(-0.002, 0.002, n)),
-        'high': prices * (1 + np.abs(np.random.randn(n) * 0.005)),
-        'low': prices * (1 - np.abs(np.random.randn(n) * 0.005)),
+        'open': prices * (1 + np.random.uniform(-0.003, 0.003, n)),
+        'high': prices * (1 + np.abs(np.random.randn(n) * 0.008)),
+        'low': prices * (1 - np.abs(np.random.randn(n) * 0.008)),
         'close': prices,
         'volume': np.random.uniform(500, 2000, n)
     })
@@ -88,182 +97,214 @@ def generate_sample_data(n=200):
 
 
 def load_data(interval='1h', limit=200):
-    """Load data with fallback to sample."""
-    print(f"[*] Loading data: {interval}, {limit}")
+    """Load data with caching."""
+    global _data_cache, _cache_time
     
-    # Try to fetch real data
+    cache_key = f"{interval}_{limit}"
+    current_time = time.time()
+    
+    if cache_key in _data_cache and (current_time - _cache_time) < CACHE_DURATION:
+        print(f"[*] Using cached data ({cache_key})")
+        return _data_cache[cache_key]
+    
+    print(f"[*] Loading fresh data: {interval}, {limit}")
+    
     df = get_ohlcv(interval=interval, limit=limit)
     
-    # Fallback to sample
     if df.empty or len(df) < 10:
         print("[*] Using sample data")
         df = generate_sample_data(limit)
     
-    # Compute indicators
     df = compute_all_indicators(df)
     
-    # Get news and tweets
-    df_news = get_all_news()
-    if not df_news.empty:
-        df_news = analyze_news_sentiment(df_news)
+    try:
+        df_news = get_all_news()
+        if not df_news.empty:
+            df_news = analyze_news_sentiment(df_news)
+    except:
+        df_news = pd.DataFrame()
     
-    df_tweets = get_tweets(limit=50)
-    if not df_tweets.empty:
-        df_tweets = analyze_tweets_sentiment(df_tweets)
+    try:
+        df_tweets = get_tweets(limit=30)
+        if not df_tweets.empty:
+            df_tweets = analyze_tweets_sentiment(df_tweets)
+    except:
+        df_tweets = pd.DataFrame()
     
-    # Add sentiment
     df['fused_sentiment'] = np.random.uniform(-0.3, 0.3, len(df))
     df['sentiment_label'] = df['fused_sentiment'].apply(classify_sentiment)
     
+    result = (df, df_news, df_tweets)
+    
+    _data_cache[cache_key] = result
+    _cache_time = current_time
+    
     print(f"[+] Loaded {len(df)} records")
-    return df, df_news, df_tweets
+    return result
 
 
 # ============================================
-# CHARTS
+# CHARTS - WHITE THEME
 # ============================================
 
 def make_price_chart(df):
-    """Create candlestick with RSI and MACD."""
+    """Create candlestick chart with Volume, RSI, and MACD - White theme."""
     if df.empty:
-        return go.Figure()
+        fig = go.Figure()
+        fig.add_annotation(text="No data available", x=0.5, y=0.5, xref='paper', yref='paper', showarrow=False)
+        return fig
     
     fig = make_subplots(
-        rows=3, cols=1,
-        row_heights=[0.6, 0.2, 0.2],
+        rows=4, cols=1,
+        row_heights=[0.5, 0.15, 0.15, 0.2],
         shared_xaxes=True,
-        vertical_spacing=0.03,
-        subplot_titles=['<b>BTC/USDT Price</b>', '<b>RSI (14)</b>', '<b>MACD</b>']
+        vertical_spacing=0.03
     )
     
     # Candlestick
     fig.add_trace(go.Candlestick(
         x=df['timestamp'],
-        open=df['open'], high=df['high'], low=df['low'], close=df['close'],
-        name='BTC', showlegend=True,
-        increasing=dict(line=dict(color=THEME['success']), fillcolor='rgba(25,135,84,0.7)'),
-        decreasing=dict(line=dict(color=THEME['danger']), fillcolor='rgba(220,53,69,0.7)')
+        open=df['open'], 
+        high=df['high'], 
+        low=df['low'], 
+        close=df['close'],
+        name='BTC/USDT',
+        increasing=dict(line=dict(color='#26a69a', width=1), fillcolor='#26a69a'),
+        decreasing=dict(line=dict(color='#ef5350', width=1), fillcolor='#ef5350')
     ), row=1, col=1)
     
     # SMA
     if 'sma_14' in df.columns:
         fig.add_trace(go.Scatter(
             x=df['timestamp'], y=df['sma_14'], name='SMA-14',
-            line=dict(color=THEME['primary'], width=2)
+            line=dict(color='#ff9800', width=1.5)
         ), row=1, col=1)
     
     if 'sma_50' in df.columns:
         fig.add_trace(go.Scatter(
             x=df['timestamp'], y=df['sma_50'], name='SMA-50',
-            line=dict(color=THEME['warning'], width=2)
+            line=dict(color='#2196f3', width=1.5)
         ), row=1, col=1)
+    
+    # Volume
+    if 'volume' in df.columns:
+        colors = ['#26a69a' if df['close'].iloc[i] >= df['open'].iloc[i] else '#ef5350' 
+                  for i in range(len(df))]
+        fig.add_trace(go.Bar(
+            x=df['timestamp'], y=df['volume'], name='Volume',
+            marker_color=colors, opacity=0.7, showlegend=False
+        ), row=2, col=1)
     
     # RSI
     if 'rsi_14' in df.columns:
         fig.add_trace(go.Scatter(
-            x=df['timestamp'], y=df['rsi_14'], name='RSI',
-            line=dict(color=THEME['info'], width=2),
-            fill='tozeroy', fillcolor='rgba(13,202,240,0.1)'
-        ), row=2, col=1)
+            x=df['timestamp'], y=df['rsi_14'], name='RSI-14',
+            line=dict(color='#9c27b0', width=2)
+        ), row=3, col=1)
         
-        fig.add_hline(y=70, line_dash='dash', line_color=THEME['danger'], row=2, col=1)
-        fig.add_hline(y=30, line_dash='dash', line_color=THEME['success'], row=2, col=1)
-        fig.add_hrect(y0=70, y1=100, fillcolor='rgba(220,53,69,0.1)', line_width=0, row=2, col=1)
-        fig.add_hrect(y0=0, y1=30, fillcolor='rgba(25,135,84,0.1)', line_width=0, row=2, col=1)
+        fig.add_hrect(y0=70, y1=100, fillcolor='rgba(239,83,80,0.1)', line_width=0, row=3, col=1)
+        fig.add_hrect(y0=0, y1=30, fillcolor='rgba(38,166,154,0.1)', line_width=0, row=3, col=1)
+        fig.add_hline(y=70, line_dash='dot', line_color='#ef5350', line_width=1, row=3, col=1)
+        fig.add_hline(y=30, line_dash='dot', line_color='#26a69a', line_width=1, row=3, col=1)
+        fig.add_hline(y=50, line_dash='dot', line_color='#9e9e9e', line_width=1, row=3, col=1)
     
     # MACD
     if 'macd' in df.columns:
         fig.add_trace(go.Scatter(
             x=df['timestamp'], y=df['macd'], name='MACD',
-            line=dict(color=THEME['primary'], width=2)
-        ), row=3, col=1)
+            line=dict(color='#2196f3', width=2)
+        ), row=4, col=1)
         
         fig.add_trace(go.Scatter(
             x=df['timestamp'], y=df['macd_signal'], name='Signal',
-            line=dict(color=THEME['warning'], width=2)
-        ), row=3, col=1)
+            line=dict(color='#ff5722', width=2)
+        ), row=4, col=1)
         
-        colors = [THEME['success'] if v >= 0 else THEME['danger'] for v in df['macd_hist']]
+        hist_colors = ['#26a69a' if v >= 0 else '#ef5350' for v in df['macd_hist']]
         fig.add_trace(go.Bar(
             x=df['timestamp'], y=df['macd_hist'], name='Histogram',
-            marker_color=colors, opacity=0.6, showlegend=False
-        ), row=3, col=1)
+            marker_color=hist_colors, opacity=0.6, showlegend=False
+        ), row=4, col=1)
+        
+        fig.add_hline(y=0, line_color='#9e9e9e', line_width=1, row=4, col=1)
     
+    # Layout - WHITE THEME
     fig.update_layout(
         height=650,
         template='plotly_white',
-        paper_bgcolor='white',
-        plot_bgcolor='white',
-        margin=dict(l=60, r=30, t=50, b=50),
+        paper_bgcolor='#ffffff',
+        plot_bgcolor='#ffffff',
+        margin=dict(l=60, r=60, t=40, b=40),
         xaxis_rangeslider_visible=False,
-        legend=dict(orientation='h', y=1.02, x=0.5, xanchor='center', font=dict(size=11)),
-        font=dict(family='Inter, sans-serif', size=12, color=THEME['text']),
-        xaxis3=dict(showgrid=True, gridcolor='#eee'),
-        yaxis=dict(showgrid=True, gridcolor='#eee'),
-        yaxis2=dict(range=[0, 100], showgrid=True, gridcolor='#eee'),
-        yaxis3=dict(showgrid=True, gridcolor='#eee')
+        legend=dict(
+            orientation='h', y=1.08, x=0.5, xanchor='center',
+            font=dict(size=11, color='#212529'),
+            bgcolor='rgba(255,255,255,0.9)'
+        ),
+        font=dict(family='Inter, sans-serif', size=12, color='#212529'),
+        hovermode='x unified'
     )
+    
+    # Update all axes
+    for i in range(1, 5):
+        fig.update_xaxes(
+            showgrid=True, gridcolor='#e9ecef', gridwidth=1,
+            showline=True, linecolor='#dee2e6', row=i, col=1
+        )
+        fig.update_yaxes(
+            showgrid=True, gridcolor='#e9ecef', gridwidth=1,
+            showline=True, linecolor='#dee2e6', row=i, col=1
+        )
+    
+    fig.update_yaxes(range=[0, 100], row=3, col=1)
     
     return fig
 
 
 def make_sentiment_chart(df):
-    """Create sentiment chart."""
+    """Create compact sentiment chart - White theme."""
     if df.empty or 'fused_sentiment' not in df.columns:
         return go.Figure()
     
-    fig = make_subplots(
-        rows=1, cols=2,
-        specs=[[{'type': 'scatter'}, {'type': 'pie'}]],
-        subplot_titles=['<b>Sentiment Timeline</b>', '<b>Distribution</b>']
-    )
-    
-    # Timeline
-    colors = [THEME['success'] if s > 0.05 else (THEME['danger'] if s < -0.05 else THEME['warning']) 
-             for s in df['fused_sentiment']]
+    fig = go.Figure()
     
     fig.add_trace(go.Scatter(
         x=df['timestamp'], y=df['fused_sentiment'],
-        mode='lines+markers', name='Sentiment',
-        line=dict(color=THEME['primary'], width=2),
-        marker=dict(size=5, color=colors)
-    ), row=1, col=1)
+        mode='lines', name='Sentiment',
+        line=dict(color='#2196f3', width=2),
+        fill='tozeroy', fillcolor='rgba(33,150,243,0.1)'
+    ))
     
-    fig.add_hline(y=0.05, line_dash='dash', line_color=THEME['success'], opacity=0.5, row=1, col=1)
-    fig.add_hline(y=-0.05, line_dash='dash', line_color=THEME['danger'], opacity=0.5, row=1, col=1)
-    fig.add_hline(y=0, line_color='#ccc', row=1, col=1)
-    
-    # Pie
-    labels = df['sentiment_label'].value_counts()
-    colors_pie = [THEME['success'] if l == 'Bullish' else (THEME['danger'] if l == 'Bearish' else THEME['warning']) for l in labels.index]
-    
-    fig.add_trace(go.Pie(
-        labels=labels.index, values=labels.values,
-        hole=0.5, marker_colors=colors_pie,
-        textinfo='percent+label', textfont=dict(size=11)
-    ), row=1, col=2)
+    fig.add_hline(y=0.1, line_dash='dot', line_color='#26a69a', opacity=0.7)
+    fig.add_hline(y=-0.1, line_dash='dot', line_color='#ef5350', opacity=0.7)
+    fig.add_hline(y=0, line_color='#9e9e9e', opacity=0.5)
     
     fig.update_layout(
-        height=350,
+        height=200,
         template='plotly_white',
-        paper_bgcolor='white',
-        plot_bgcolor='white',
-        margin=dict(l=60, r=30, t=50, b=50),
-        font=dict(family='Inter, sans-serif', size=12, color=THEME['text']),
-        showlegend=False
+        paper_bgcolor='#ffffff',
+        plot_bgcolor='#ffffff',
+        margin=dict(l=50, r=20, t=20, b=40),
+        font=dict(family='Inter, sans-serif', size=11, color='#212529'),
+        showlegend=False,
+        xaxis=dict(showgrid=True, gridcolor='#e9ecef'),
+        yaxis=dict(showgrid=True, gridcolor='#e9ecef', range=[-0.5, 0.5])
     )
     
     return fig
 
 
 def make_forecast_chart(results):
-    """Create forecast comparison chart."""
+    """Create forecast comparison chart - White theme."""
     fig = go.Figure()
     
     if not results:
-        fig.add_annotation(text="No forecast data", x=0.5, y=0.5, xref='paper', yref='paper', showarrow=False)
-        fig.update_layout(height=300, template='plotly_white', paper_bgcolor='white')
+        fig.add_annotation(text="No forecast data", x=0.5, y=0.5, xref='paper', yref='paper', 
+                          showarrow=False, font=dict(color='#6c757d'))
+        fig.update_layout(height=250, template='plotly_white', paper_bgcolor='#ffffff')
         return fig
+    
+    colors = {'ARIMA': '#ff5722', 'ARIMAX': '#2196f3'}
     
     for name, result in results.items():
         if 'actual' in result and 'predictions' in result:
@@ -274,95 +315,139 @@ def make_forecast_chart(results):
             if name == 'ARIMA':
                 fig.add_trace(go.Scatter(
                     x=list(range(n)), y=actual[:n], name='Actual',
-                    line=dict(color=THEME['text'], width=3)
+                    line=dict(color='#212529', width=2)
                 ))
             
             fig.add_trace(go.Scatter(
                 x=list(range(n)), y=predicted[:n], name=f'{name}',
-                line=dict(width=2, dash='dash')
+                line=dict(width=2, dash='dash', color=colors.get(name, '#2196f3'))
             ))
     
     fig.update_layout(
-        height=280,
+        height=250,
         template='plotly_white',
-        paper_bgcolor='white',
-        plot_bgcolor='white',
-        margin=dict(l=60, r=30, t=30, b=50),
-        legend=dict(orientation='h', y=-0.2, x=0.5, xanchor='center'),
-        font=dict(family='Inter, sans-serif', size=12),
-        xaxis_title='Test Period', yaxis_title='Price ($)'
+        paper_bgcolor='#ffffff',
+        plot_bgcolor='#ffffff',
+        margin=dict(l=50, r=20, t=20, b=50),
+        legend=dict(orientation='h', y=-0.2, x=0.5, xanchor='center', font=dict(size=11)),
+        font=dict(family='Inter, sans-serif', size=11, color='#212529'),
+        xaxis=dict(title='Test Period', showgrid=True, gridcolor='#e9ecef'),
+        yaxis=dict(title='Price ($)', showgrid=True, gridcolor='#e9ecef')
     )
     
     return fig
 
 
 # ============================================
-# LAYOUT
+# UI COMPONENTS
 # ============================================
 
 def metric_card(title, value, subtitle='', color='primary', icon=''):
-    """Modern metric card."""
+    """Metric card with white theme."""
+    color_map = {
+        'primary': THEME['primary'],
+        'success': THEME['success'],
+        'danger': THEME['danger'],
+        'warning': THEME['warning'],
+        'info': THEME['info']
+    }
     return dbc.Card([
         dbc.CardBody([
             html.Div([
-                html.Span(icon, style={'fontSize': '1.5rem', 'marginRight': '8px'}),
+                html.Span(icon, style={'fontSize': '1.2rem', 'marginRight': '8px'}),
                 html.Div([
-                    html.P(title, className='text-muted mb-0', style={'fontSize': '0.8rem', 'fontWeight': '500'}),
-                    html.H4(value, className='mb-0', style={'fontWeight': '700', 'color': THEME.get(color, THEME['text'])}),
-                    html.Small(subtitle, style={'color': THEME.get(color, THEME['text_muted'])})
+                    html.Small(title, className='text-muted', style={'fontSize': '0.75rem', 'textTransform': 'uppercase'}),
+                    html.H5(value, className='mb-0', style={'fontWeight': '700', 'color': color_map.get(color, THEME['text'])}),
+                    html.Small(subtitle, style={'color': color_map.get(color, THEME['text_muted']), 'fontSize': '0.75rem'})
                 ])
             ], className='d-flex align-items-center')
-        ], className='py-3')
-    ], className='h-100 shadow-sm border-0', style={'borderRadius': '12px', 'backgroundColor': THEME['card_bg']})
+        ], className='py-2 px-3')
+    ], className='shadow-sm border', style={'borderRadius': '8px', 'backgroundColor': '#ffffff'})
 
+
+def news_card(news_item):
+    """Single news item card."""
+    sent_color = THEME['success'] if news_item['sentiment'] > 0.1 else (THEME['danger'] if news_item['sentiment'] < -0.1 else THEME['warning'])
+    
+    return html.Div([
+        html.Div([
+            html.Span(f"● {news_item['source']}", style={'fontSize': '0.7rem', 'color': THEME['text_muted']}),
+            dbc.Badge(news_item['impact'], color='danger' if news_item['impact'] == 'High' else ('warning' if news_item['impact'] == 'Medium' else 'secondary'), 
+                     className='ms-2', style={'fontSize': '0.6rem'})
+        ], className='mb-1'),
+        html.P(news_item['title'], className='mb-1', style={'fontSize': '0.8rem', 'color': THEME['text'], 'lineHeight': '1.3'}),
+        html.Div([
+            dbc.Badge(news_item['sentiment_label'], color='success' if news_item['sentiment'] > 0.1 else ('danger' if news_item['sentiment'] < -0.1 else 'warning'), 
+                     style={'fontSize': '0.65rem'}),
+            html.Span(f" • {news_item['hours_ago']}h ago", style={'color': THEME['text_muted'], 'fontSize': '0.65rem'})
+        ])
+    ], className='border-bottom py-2')
+
+
+def event_card(event):
+    """Event card."""
+    return html.Div([
+        html.Div([
+            html.Strong(f"📅 {event['date_formatted']}", style={'fontSize': '0.75rem', 'color': THEME['primary']}),
+            dbc.Badge(f"in {event['days_until']}d" if event['days_until'] > 0 else "TODAY", 
+                     color='danger' if event['days_until'] == 0 else 'secondary', className='ms-2', style={'fontSize': '0.6rem'})
+        ]),
+        html.P(event['event'], className='mb-0 mt-1', style={'fontWeight': '600', 'fontSize': '0.85rem'}),
+        html.Small(event['description'], className='text-muted')
+    ], className='border-bottom py-2')
+
+
+# ============================================
+# LAYOUT - STABLE BOOTSTRAP GRID
+# ============================================
 
 app.layout = dbc.Container([
     # Header
     dbc.Row([
         dbc.Col([
-            html.H2([
+            html.H3([
                 html.Span("₿", className='text-warning me-2'),
                 "Bitcoin Sentiment Forecast"
-            ], className='mb-1', style={'fontWeight': '700'}),
-            html.P("ARIMA/ARIMAX | VADER Sentiment | Real-time Analysis", className='text-muted mb-0')
+            ], className='mb-0', style={'fontWeight': '700'}),
+            html.Small("ARIMA/ARIMAX • VADER Sentiment • Real-time Analysis", className='text-muted')
         ], md=8),
         dbc.Col([
-            dbc.Button([html.Span("↻", className='me-2'), "Refresh"], id='refresh-btn', color='primary', className='me-2'),
+            dbc.Button([html.Span("↻", className='me-2'), "Refresh"], id='refresh-btn', color='primary', size='sm', className='me-2'),
             html.Span(id='last-update', className='text-muted small')
         ], md=4, className='text-end d-flex align-items-center justify-content-end')
-    ], className='py-4 border-bottom mb-4'),
+    ], className='py-3 mb-3 border-bottom'),
     
     # Controls
     dbc.Card([
         dbc.CardBody([
             dbc.Row([
                 dbc.Col([
-                    html.Label("Timeframe", className='form-label fw-semibold'),
+                    html.Label("Timeframe", className='form-label small fw-semibold'),
                     dcc.Dropdown(id='timeframe', options=[{'label': v, 'value': k} for k, v in TIMEFRAMES.items()],
-                                value='1h', clearable=False, className='')
+                                value='1h', clearable=False)
                 ], md=2),
                 dbc.Col([
-                    html.Label("Data Points", className='form-label fw-semibold'),
-                    dcc.Slider(id='limit', min=50, max=500, value=200, step=50,
-                              marks={50: '50', 200: '200', 500: '500'}, tooltip={'placement': 'bottom'})
+                    html.Label("Data Points", className='form-label small fw-semibold'),
+                    dcc.Slider(id='limit', min=50, max=300, value=150, step=50,
+                              marks={50: '50', 150: '150', 300: '300'}, tooltip={'placement': 'bottom'})
                 ], md=4),
                 dbc.Col([
-                    html.Label("ARIMA Order (p, d, q)", className='form-label fw-semibold'),
+                    html.Label("ARIMA (p, d, q)", className='form-label small fw-semibold'),
                     dbc.InputGroup([
-                        dbc.Input(id='p', type='number', value=5, min=1, max=10, className='text-center'),
-                        dbc.Input(id='d', type='number', value=1, min=0, max=2, className='text-center'),
-                        dbc.Input(id='q', type='number', value=0, min=0, max=5, className='text-center')
+                        dbc.Input(id='p', type='number', value=5, min=1, max=10, className='text-center', size='sm'),
+                        dbc.Input(id='d', type='number', value=1, min=0, max=2, className='text-center', size='sm'),
+                        dbc.Input(id='q', type='number', value=0, min=0, max=5, className='text-center', size='sm')
                     ], size='sm')
                 ], md=3),
                 dbc.Col([
-                    html.Label("Auto Refresh", className='form-label fw-semibold'),
-                    dbc.Switch(id='auto-refresh', value=True, label="60 sec", className='mt-1')
+                    html.Label("Auto Refresh", className='form-label small fw-semibold'),
+                    dbc.Switch(id='auto-refresh', value=True, label="60 sec")
                 ], md=3)
             ])
-        ])
-    ], className='mb-4 shadow-sm border-0', style={'borderRadius': '12px', 'backgroundColor': THEME['card_bg']}),
+        ], className='py-2')
+    ], className='mb-3 shadow-sm'),
     
-    # Metrics
+    # Metrics Row
     dbc.Row([
         dbc.Col(html.Div(id='m-price'), md=2),
         dbc.Col(html.Div(id='m-change'), md=2),
@@ -370,38 +455,64 @@ app.layout = dbc.Container([
         dbc.Col(html.Div(id='m-rsi'), md=2),
         dbc.Col(html.Div(id='m-macd'), md=2),
         dbc.Col(html.Div(id='m-signal'), md=2)
-    ], className='mb-4 g-3'),
+    ], className='mb-3 g-2'),
     
-    # Price Chart
-    dbc.Card([
-        dbc.CardHeader(html.H5("📈 Price Chart with Indicators", className='mb-0 fw-semibold')),
-        dbc.CardBody([dcc.Graph(id='chart-price', config={'displayModeBar': True, 'displaylogo': False})])
-    ], className='mb-4 shadow-sm border-0', style={'borderRadius': '12px'}),
+    # Main Row: Chart + Sidebar
+    dbc.Row([
+        # Chart Column
+        dbc.Col([
+            dbc.Card([
+                dbc.CardHeader(html.H6("📈 BTC/USDT Price Chart with Indicators", className='mb-0 fw-semibold')),
+                dbc.CardBody([
+                    dcc.Graph(id='chart-price', config={'displayModeBar': True, 'displaylogo': False})
+                ], className='p-2')
+            ], className='shadow-sm h-100')
+        ], lg=9, md=12, className='mb-3'),
+        
+        # Sidebar Column
+        dbc.Col([
+            # Events
+            dbc.Card([
+                dbc.CardHeader(html.H6("🗓 Upcoming Events", className='mb-0 fw-semibold')),
+                dbc.CardBody(id='events-list', className='py-2', style={'maxHeight': '200px', 'overflowY': 'auto'})
+            ], className='shadow-sm mb-3'),
+            
+            # News
+            dbc.Card([
+                dbc.CardHeader(html.H6("📰 Latest News", className='mb-0 fw-semibold')),
+                dbc.CardBody(id='news-list', className='py-2', style={'maxHeight': '250px', 'overflowY': 'auto'})
+            ], className='shadow-sm')
+        ], lg=3, md=12)
+    ]),
     
-    # Two columns
+    # Second Row: Sentiment + Forecast + Signals
     dbc.Row([
         dbc.Col([
             dbc.Card([
-                dbc.CardHeader(html.H5("💬 Sentiment Analysis", className='mb-0 fw-semibold')),
-                dbc.CardBody([dcc.Graph(id='chart-sentiment', config={'displayModeBar': False})])
-            ], className='shadow-sm border-0 h-100', style={'borderRadius': '12px'})
-        ], md=6),
+                dbc.CardHeader(html.H6("💬 Sentiment Timeline", className='mb-0 fw-semibold')),
+                dbc.CardBody([
+                    dcc.Graph(id='chart-sentiment', config={'displayModeBar': False})
+                ], className='p-2')
+            ], className='shadow-sm h-100')
+        ], md=4),
+        
         dbc.Col([
             dbc.Card([
-                dbc.CardHeader(html.H5("🎯 ARIMA vs ARIMAX", className='mb-0 fw-semibold')),
+                dbc.CardHeader(html.H6("🎯 ARIMA vs ARIMAX Forecast", className='mb-0 fw-semibold')),
                 dbc.CardBody([
                     dcc.Graph(id='chart-forecast', config={'displayModeBar': False}),
-                    html.Div(id='metrics-table')
-                ])
-            ], className='shadow-sm border-0 h-100', style={'borderRadius': '12px'})
-        ], md=6)
-    ], className='mb-4 g-4'),
-    
-    # Interpretation
-    dbc.Card([
-        dbc.CardHeader(html.H5("🧠 AI Trading Signals", className='mb-0 fw-semibold')),
-        dbc.CardBody(id='interpretation')
-    ], className='mb-4 shadow-sm border-0', style={'borderRadius': '12px'}),
+                    html.Div(id='metrics-table', className='mt-2')
+                ], className='p-2')
+            ], className='shadow-sm h-100')
+        ], md=4),
+        
+        dbc.Col([
+            dbc.Card([
+                dbc.CardHeader(html.H6("🧠 Trading Signals", className='mb-0 fw-semibold')),
+                dbc.CardBody(id='interpretation', className='py-2', style={'maxHeight': '350px', 'overflowY': 'auto'})
+            ], className='shadow-sm h-100')
+        ], md=4)
+    ], className='mb-3 g-3'),
     
     # Store and Interval
     dcc.Store(id='store'),
@@ -409,10 +520,11 @@ app.layout = dbc.Container([
     
     # Footer
     html.Footer([
-        html.P("SINTA 1 Bitcoin Forecasting System", className='text-muted text-center mb-0 py-3')
-    ], className='border-top mt-4')
+        html.P("SINTA 1 Bitcoin Forecasting System • Crypto Research Dashboard", 
+               className='text-muted text-center mb-0 py-3 small')
+    ], className='border-top mt-3')
     
-], fluid=True, className='py-3', style={'backgroundColor': THEME['bg'], 'minHeight': '100vh', 'fontFamily': 'Inter, sans-serif'})
+], fluid=True, className='py-3', style={'backgroundColor': '#f8f9fa', 'minHeight': '100vh', 'fontFamily': 'Inter, sans-serif'})
 
 
 # ============================================
@@ -433,11 +545,14 @@ def toggle_refresh(v):
     State('limit', 'value')
 )
 def update_data(n, intervals, tf, limit):
-    df, news, tweets = load_data(tf, limit or 200)
+    df, news, tweets = load_data(tf, limit or 150)
+    cp = fetch_current_price()
+    
     return {
         'df': df.to_json(date_format='iso'),
         'news': news.to_json(date_format='iso') if not news.empty else '{}',
-        'tweets': tweets.to_json(date_format='iso') if not tweets.empty else '{}'
+        'tweets': tweets.to_json(date_format='iso') if not tweets.empty else '{}',
+        'current_price': cp
     }, f"Updated: {datetime.now().strftime('%H:%M:%S')}"
 
 
@@ -452,10 +567,10 @@ def update_data(n, intervals, tf, limit):
 )
 def update_metrics(data):
     if not data:
-        return [metric_card("Loading", "...")] * 6
+        return [metric_card("Loading", "...", icon="⏳")] * 6
     
     df = pd.read_json(data['df'])
-    cp = fetch_current_price()
+    cp = data.get('current_price', {})
     
     price = cp.get('price', df['close'].iloc[-1] if not df.empty else 97000)
     change = cp.get('change_24h', 0)
@@ -464,21 +579,24 @@ def update_metrics(data):
     macd_s = df['macd_signal'].iloc[-1] if 'macd_signal' in df.columns else 0
     sent = df['fused_sentiment'].iloc[-1] if 'fused_sentiment' in df.columns else 0
     
+    interp = generate_interpretation(df, {}, change)
+    combined = interp.get('combined_signal', {})
+    signal = combined.get('signal', 'HOLD')
+    confidence = combined.get('confidence', 0.5)
+    
     rsi_state = 'Overbought' if rsi > 70 else ('Oversold' if rsi < 30 else 'Neutral')
     macd_trend = 'Bullish' if macd > macd_s else 'Bearish'
     sent_label = classify_sentiment(sent)
     
-    buy = (rsi < 30) + (macd > macd_s) + (sent > 0.05)
-    sell = (rsi > 70) + (macd < macd_s) + (sent < -0.05)
-    signal = 'BUY' if buy > sell else ('SELL' if sell > buy else 'HOLD')
+    signal_color = 'success' if 'BUY' in signal else ('danger' if 'SELL' in signal else 'warning')
     
     return (
-        metric_card("BTC Price", f"${price:,.0f}", cp.get('source', ''), 'primary', '💰'),
+        metric_card("BTC Price", f"${price:,.0f}", cp.get('source', 'CoinGecko'), 'primary', '💰'),
         metric_card("24h Change", f"{change:+.2f}%", "", 'success' if change >= 0 else 'danger', '📊'),
         metric_card("Sentiment", sent_label, f"{sent:.3f}", 'success' if sent > 0.05 else ('danger' if sent < -0.05 else 'warning'), '💬'),
         metric_card("RSI-14", f"{rsi:.1f}", rsi_state, 'danger' if rsi > 70 else ('success' if rsi < 30 else 'warning'), '📉'),
-        metric_card("MACD", f"{macd:.1f}", macd_trend, 'success' if macd > macd_s else 'danger', '📈'),
-        metric_card("Signal", signal, "", 'success' if signal == 'BUY' else ('danger' if signal == 'SELL' else 'warning'), '🎯')
+        metric_card("MACD", f"{macd:.0f}", macd_trend, 'success' if macd > macd_s else 'danger', '📈'),
+        metric_card("Signal", signal, f"{confidence:.0%}", signal_color, '🎯')
     )
 
 
@@ -497,7 +615,23 @@ def update_sentiment_chart(data):
         return go.Figure()
     df = pd.read_json(data['df'])
     df['timestamp'] = pd.to_datetime(df['timestamp'])
-    return make_sentiment_chart(df.tail(100))
+    return make_sentiment_chart(df.tail(50))
+
+
+@app.callback(Output('events-list', 'children'), Input('store', 'data'))
+def update_events(data):
+    events = get_upcoming_events(days_ahead=30)
+    if not events:
+        return html.P("No upcoming events", className='text-muted small')
+    return html.Div([event_card(e) for e in events[:5]])
+
+
+@app.callback(Output('news-list', 'children'), Input('store', 'data'))
+def update_news(data):
+    news = fetch_aggregated_news(limit=5)
+    if not news:
+        return html.P("No news available", className='text-muted small')
+    return html.Div([news_card(n) for n in news])
 
 
 @app.callback(
@@ -517,7 +651,7 @@ def update_forecast(data, p, d, q):
     
     clean = df.dropna(subset=['close']).reset_index(drop=True)
     if len(clean) < 30:
-        return go.Figure(), html.P("Not enough data", className='text-muted')
+        return go.Figure(), html.P("Not enough data", className='text-muted small')
     
     try:
         results['ARIMA'] = train_arima(clean, order=(p or 5, d or 1, q or 0), test_size=0.2)
@@ -533,21 +667,20 @@ def update_forecast(data, p, d, q):
         pass
     
     if not results:
-        return go.Figure(), html.P("Model training failed", className='text-muted')
+        return go.Figure(), html.P("Model training failed", className='text-muted small')
     
     comparison = compare_models(results)
     
     table = dbc.Table([
-        html.Thead(html.Tr([html.Th("Model"), html.Th("RMSE"), html.Th("MAE"), html.Th("MAPE")])),
+        html.Thead(html.Tr([html.Th("Model"), html.Th("RMSE"), html.Th("MAPE")])),
         html.Tbody([
             html.Tr([
                 html.Td(r['Model']),
                 html.Td(f"${r['RMSE']:,.0f}"),
-                html.Td(f"${r['MAE']:,.0f}"),
                 html.Td(f"{r['MAPE']:.2f}%")
             ]) for _, r in comparison.iterrows()
         ])
-    ], striped=True, hover=True, size='sm', className='mt-3') if not comparison.empty else ""
+    ], size='sm', striped=True, className='small') if not comparison.empty else ""
     
     return make_forecast_chart(results), table
 
@@ -558,23 +691,49 @@ def update_interp(data):
         return html.P("Loading...", className='text-muted')
     
     df = pd.read_json(data['df'])
-    interp = generate_interpretation(df, {})
-    insights = interp.get('insights', [])
+    cp = data.get('current_price', {})
+    change_24h = cp.get('change_24h', 0)
     
-    if not insights:
-        return html.P("No significant signals", className='text-muted')
+    interp = generate_interpretation(df, {}, change_24h)
+    insights = interp.get('insights', [])
+    combined = interp.get('combined_signal', {})
     
     alerts = []
-    for i in insights[:5]:
-        color = 'info' if i['level'] == 'info' else ('warning' if i['level'] == 'warning' else 'danger')
-        badge = dbc.Badge(i['signal'].upper(), color='success' if i['signal'] == 'buy' else ('danger' if i['signal'] == 'sell' else 'warning'), className='ms-2') if i.get('signal') else None
-        alerts.append(dbc.Alert([html.Strong(f"{i['category']}: "), i['message'], badge], color=color, className='mb-2'))
     
-    overall = interp.get('overall_signal', 'HOLD')
-    alerts.append(html.Div([
-        html.Strong("OVERALL: "),
-        dbc.Badge(overall, color='success' if overall == 'BUY' else ('danger' if overall == 'SELL' else 'warning'), className='ms-2', style={'fontSize': '1rem'})
-    ], className='p-3 bg-light rounded mt-3'))
+    # Combined signal
+    if combined:
+        signal = combined.get('signal', 'HOLD')
+        confidence = combined.get('confidence', 0.5)
+        reason = combined.get('reason', '')
+        components = combined.get('components', {})
+        
+        signal_color = 'success' if 'BUY' in signal else ('danger' if 'SELL' in signal else 'warning')
+        
+        alerts.append(dbc.Alert([
+            html.Div([
+                html.H4(signal, className='alert-heading mb-1'),
+                html.Span(f" ({confidence:.0%} confidence)", className='text-muted')
+            ]),
+            html.P(reason, className='mb-2 small'),
+            html.Div([
+                dbc.Badge(f"Sent: {components.get('sentiment', 'N/A')}", className='me-1', color='secondary'),
+                dbc.Badge(f"RSI: {components.get('rsi', 'N/A')}", className='me-1', color='secondary'),
+                dbc.Badge(f"MACD: {components.get('macd', 'N/A')}", className='me-1', color='secondary'),
+                dbc.Badge(f"24h: {components.get('24h_change', 'N/A')}", color='secondary')
+            ])
+        ], color=signal_color, className='mb-3'))
+    
+    # Insights
+    for i in insights[:4]:
+        badge = None
+        if i.get('signal') and i['signal'] != 'hold':
+            badge = dbc.Badge(i['signal'].upper(), color='success' if i['signal'] == 'buy' else 'danger', className='ms-2')
+        
+        alerts.append(html.Div([
+            html.Strong(f"{i['category']}: ", style={'color': THEME['danger'] if i['level'] == 'critical' else (THEME['warning'] if i['level'] == 'warning' else THEME['info'])}),
+            html.Span(i['message'], className='small'),
+            badge
+        ], className='py-1 border-bottom'))
     
     return html.Div(alerts)
 
