@@ -43,9 +43,10 @@ except ImportError:
 
 # ============================================
 # MAJOR CRYPTO EVENTS CALENDAR 2024-2025
+# (Fallback events if API fails)
 # ============================================
 
-CRYPTO_EVENTS = [
+CRYPTO_EVENTS_FALLBACK = [
     # FOMC Meetings 2024-2025
     {"date": "2024-12-18", "event": "FOMC Meeting", "impact": "High", "description": "Fed interest rate decision"},
     {"date": "2025-01-29", "event": "FOMC Meeting", "impact": "High", "description": "Fed interest rate decision"},
@@ -67,13 +68,193 @@ CRYPTO_EVENTS = [
     {"date": "2025-01-15", "event": "CPI Data", "impact": "High", "description": "Consumer Price Index release"},
 ]
 
+# Cache for API events
+_events_cache = []
+_events_cache_time = None
+EVENTS_CACHE_DURATION = 3600  # Cache events for 1 hour
+
+
+def fetch_coinmarketcal_events() -> List[Dict]:
+    """
+    Fetch crypto events from CoinMarketCal API.
+    Free tier available at: https://coinmarketcal.com/en/api
+    """
+    events = []
+    
+    try:
+        # CoinMarketCal free endpoint (may require API key for full access)
+        url = "https://developers.coinmarketcal.com/v1/events"
+        
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+            'Accept': 'application/json'
+        }
+        
+        params = {
+            'max': 30,
+            'coins': 'bitcoin',
+            'sortBy': 'date'
+        }
+        
+        response = requests.get(url, headers=headers, params=params, timeout=10)
+        
+        if response.status_code == 200:
+            data = response.json()
+            
+            for item in data.get('body', []):
+                event_date = item.get('date_event', '')[:10]  # Get YYYY-MM-DD
+                
+                # Determine impact based on votes/score
+                votes = item.get('vote_count', 0)
+                if votes > 100:
+                    impact = 'High'
+                elif votes > 50:
+                    impact = 'Medium'
+                else:
+                    impact = 'Low'
+                
+                events.append({
+                    "date": event_date,
+                    "event": item.get('title', {}).get('en', 'Unknown Event'),
+                    "impact": impact,
+                    "description": item.get('description', {}).get('en', '')[:100],
+                    "source": "CoinMarketCal"
+                })
+            
+            print(f"[+] CoinMarketCal: Fetched {len(events)} events")
+        else:
+            print(f"[!] CoinMarketCal API returned {response.status_code}")
+            
+    except requests.exceptions.Timeout:
+        print("[!] CoinMarketCal timeout")
+    except Exception as e:
+        print(f"[!] CoinMarketCal error: {type(e).__name__}: {e}")
+    
+    return events
+
+
+def fetch_coingecko_events() -> List[Dict]:
+    """
+    Fetch crypto events from CoinGecko (free, no API key required).
+    """
+    events = []
+    
+    try:
+        # CoinGecko events endpoint
+        url = "https://api.coingecko.com/api/v3/events"
+        
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+            'Accept': 'application/json'
+        }
+        
+        response = requests.get(url, headers=headers, timeout=10)
+        
+        if response.status_code == 200:
+            data = response.json()
+            
+            for item in data.get('data', []):
+                # Parse date
+                start_date = item.get('start_date', '')
+                if start_date:
+                    try:
+                        event_date = datetime.strptime(start_date, "%Y-%m-%d").strftime("%Y-%m-%d")
+                    except:
+                        event_date = start_date[:10] if len(start_date) >= 10 else start_date
+                else:
+                    continue
+                
+                # Determine impact based on type
+                event_type = item.get('type', '').lower()
+                if any(x in event_type for x in ['conference', 'meetup', 'summit']):
+                    impact = 'Medium'
+                elif any(x in event_type for x in ['release', 'launch', 'upgrade']):
+                    impact = 'High'
+                else:
+                    impact = 'Low'
+                
+                events.append({
+                    "date": event_date,
+                    "event": item.get('title', 'Unknown Event'),
+                    "impact": impact,
+                    "description": item.get('description', '')[:100] if item.get('description') else item.get('type', ''),
+                    "source": "CoinGecko"
+                })
+            
+            print(f"[+] CoinGecko: Fetched {len(events)} events")
+        else:
+            print(f"[!] CoinGecko Events API returned {response.status_code}")
+            
+    except requests.exceptions.Timeout:
+        print("[!] CoinGecko timeout")
+    except Exception as e:
+        print(f"[!] CoinGecko events error: {type(e).__name__}: {e}")
+    
+    return events
+
+
+def fetch_all_crypto_events() -> List[Dict]:
+    """
+    Fetch events from all API sources and merge with fallback events.
+    Uses caching to avoid excessive API calls.
+    """
+    global _events_cache, _events_cache_time
+    
+    current_time = datetime.now()
+    
+    # Check cache
+    if _events_cache and _events_cache_time:
+        cache_age = (current_time - _events_cache_time).total_seconds()
+        if cache_age < EVENTS_CACHE_DURATION:
+            print(f"[*] Using cached events ({len(_events_cache)} events)")
+            return _events_cache
+    
+    print("[*] Fetching fresh events from APIs...")
+    
+    all_events = []
+    
+    # 1. Try CoinGecko first (most reliable, free)
+    coingecko_events = fetch_coingecko_events()
+    all_events.extend(coingecko_events)
+    
+    # 2. Try CoinMarketCal
+    coinmarketcal_events = fetch_coinmarketcal_events()
+    all_events.extend(coinmarketcal_events)
+    
+    # 3. Always include fallback events (FOMC, halving, etc.)
+    for event in CRYPTO_EVENTS_FALLBACK:
+        # Add source tag
+        event_copy = event.copy()
+        event_copy['source'] = 'Calendar'
+        all_events.append(event_copy)
+    
+    # Remove duplicates based on date + event name
+    seen = set()
+    unique_events = []
+    for event in all_events:
+        key = f"{event['date']}_{event['event'][:30]}"
+        if key not in seen:
+            seen.add(key)
+            unique_events.append(event)
+    
+    # Update cache
+    _events_cache = unique_events
+    _events_cache_time = current_time
+    
+    print(f"[+] Total unique events: {len(unique_events)}")
+    
+    return unique_events
+
 
 def get_upcoming_events(days_ahead: int = 30) -> List[Dict]:
-    """Get upcoming major events within the next N days."""
+    """Get upcoming major events within the next N days (dynamic from APIs)."""
     today = datetime.now().date()
     upcoming = []
     
-    for event in CRYPTO_EVENTS:
+    # Fetch from all sources (with caching)
+    all_events = fetch_all_crypto_events()
+    
+    for event in all_events:
         try:
             event_date = datetime.strptime(event["date"], "%Y-%m-%d").date()
             days_until = (event_date - today).days
@@ -91,11 +272,14 @@ def get_upcoming_events(days_ahead: int = 30) -> List[Dict]:
 
 
 def get_past_events(days_back: int = 7) -> List[Dict]:
-    """Get recent major events from the past N days."""
+    """Get recent major events from the past N days (dynamic from APIs)."""
     today = datetime.now().date()
     past = []
     
-    for event in CRYPTO_EVENTS:
+    # Fetch from all sources (with caching)
+    all_events = fetch_all_crypto_events()
+    
+    for event in all_events:
         try:
             event_date = datetime.strptime(event["date"], "%Y-%m-%d").date()
             days_ago = (today - event_date).days
@@ -116,6 +300,42 @@ def get_past_events(days_back: int = 7) -> List[Dict]:
 # REAL NEWS INTEGRATION
 # ============================================
 
+def format_time_ago(timestamp) -> str:
+    """Format time ago dynamically: minutes, hours, or days."""
+    if timestamp is None:
+        return "Unknown"
+    
+    try:
+        now = datetime.now()
+        ts = pd.to_datetime(timestamp)
+        
+        # Remove timezone if present
+        if hasattr(ts, 'tzinfo') and ts.tzinfo is not None:
+            ts = ts.replace(tzinfo=None)
+        
+        diff = now - ts
+        total_seconds = diff.total_seconds()
+        
+        if total_seconds < 0:
+            return "Just now"
+        elif total_seconds < 60:
+            return "Just now"
+        elif total_seconds < 3600:  # Less than 1 hour
+            minutes = int(total_seconds / 60)
+            return f"{minutes}m ago"
+        elif total_seconds < 86400:  # Less than 24 hours
+            hours = int(total_seconds / 3600)
+            return f"{hours}h ago"
+        else:  # Days
+            days = int(total_seconds / 86400)
+            if days == 1:
+                return "1 day ago"
+            else:
+                return f"{days} days ago"
+    except:
+        return "Unknown"
+
+
 def fetch_aggregated_news(limit: int = 10) -> List[Dict]:
     """
     Fetch aggregated news from real sources.
@@ -133,11 +353,9 @@ def fetch_aggregated_news(limit: int = 10) -> List[Dict]:
         now = datetime.now()
         
         for i, row in df.head(limit).iterrows():
-            # Calculate hours ago
-            if 'timestamp' in row and pd.notna(row['timestamp']):
-                hours_ago = max(0, int((now - pd.to_datetime(row['timestamp'])).total_seconds() / 3600))
-            else:
-                hours_ago = 1
+            # Format time ago dynamically
+            timestamp = row.get('timestamp', None)
+            time_ago = format_time_ago(timestamp)
             
             # Get sentiment from title and summary
             text = f"{row.get('title', '')} {row.get('summary', '')}"
@@ -163,11 +381,11 @@ def fetch_aggregated_news(limit: int = 10) -> List[Dict]:
                 "category": "Market",  # Could be enhanced with NLP
                 "impact": impact,
                 "published": row.get('timestamp', now).strftime("%Y-%m-%d %H:%M") if hasattr(row.get('timestamp', now), 'strftime') else str(row.get('timestamp', '')),
-                "hours_ago": hours_ago,
+                "time_ago": time_ago,
                 "url": row.get('url', '')
             })
         
-        return sorted(news_items, key=lambda x: x["hours_ago"])
+        return news_items
         
     except Exception as e:
         print(f"[!] Error fetching aggregated news: {type(e).__name__}: {e}")

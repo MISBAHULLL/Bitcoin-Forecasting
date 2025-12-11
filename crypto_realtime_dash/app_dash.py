@@ -520,6 +520,42 @@ def metric_card(title, value, subtitle='', color='primary', icon=''):
     ], className='shadow-sm border', style={'borderRadius': '8px', 'backgroundColor': '#ffffff'})
 
 
+def format_time_ago(timestamp):
+    """Format time ago dynamically: minutes, hours, or days."""
+    if timestamp is None:
+        return "Unknown"
+    
+    try:
+        now = datetime.now()
+        ts = pd.to_datetime(timestamp)
+        
+        # Remove timezone if present
+        if ts.tzinfo is not None:
+            ts = ts.replace(tzinfo=None)
+        
+        diff = now - ts
+        total_seconds = diff.total_seconds()
+        
+        if total_seconds < 0:
+            return "Just now"
+        elif total_seconds < 60:
+            return "Just now"
+        elif total_seconds < 3600:  # Less than 1 hour
+            minutes = int(total_seconds / 60)
+            return f"{minutes}m ago"
+        elif total_seconds < 86400:  # Less than 24 hours
+            hours = int(total_seconds / 3600)
+            return f"{hours}h ago"
+        else:  # Days
+            days = int(total_seconds / 86400)
+            if days == 1:
+                return "1 day ago"
+            else:
+                return f"{days} days ago"
+    except:
+        return "Unknown"
+
+
 def news_card(news_item):
     """Single news item card."""
     sent_color = THEME['success'] if news_item['sentiment'] > 0.1 else (THEME['danger'] if news_item['sentiment'] < -0.1 else THEME['warning'])
@@ -534,7 +570,7 @@ def news_card(news_item):
         html.Div([
             dbc.Badge(news_item['sentiment_label'], color='success' if news_item['sentiment'] > 0.1 else ('danger' if news_item['sentiment'] < -0.1 else 'warning'), 
                      style={'fontSize': '0.65rem'}),
-            html.Span(f" • {news_item['hours_ago']}h ago", style={'color': THEME['text_muted'], 'fontSize': '0.65rem'})
+            html.Span(f" • {news_item['time_ago']}", style={'color': THEME['text_muted'], 'fontSize': '0.65rem'})
         ])
     ], className='border-bottom py-2')
 
@@ -629,14 +665,14 @@ app.layout = dbc.Container([
             # Events - small card on top
             dbc.Card([
                 dbc.CardHeader(html.H6("🗓 Upcoming Events", className='mb-0 fw-semibold')),
-                dbc.CardBody(id='events-list', className='py-2', style={'maxHeight': '180px', 'overflowY': 'auto'})
-            ], className='shadow-sm', style={'height': '230px'}),
+                dbc.CardBody(id='events-list', className='py-2', style={'maxHeight': '110px', 'overflowY': 'auto'})
+            ], className='shadow-sm', style={'height': '160px'}),
             
             # Latest News - below Events, fills remaining space
             dbc.Card([
                 dbc.CardHeader(html.H6("📰 Latest News (1 Week)", className='mb-0 fw-semibold')),
-                dbc.CardBody(id='news-list', className='py-2', style={'maxHeight': '380px', 'overflowY': 'auto'})
-            ], className='shadow-sm mt-3', style={'height': '435px'})  # 680 - 230 - margin = ~435
+                dbc.CardBody(id='news-list', className='py-2', style={'maxHeight': '455px', 'overflowY': 'auto'})
+            ], className='shadow-sm mt-3', style={'height': '505px'})  # 680 - 160 - margin = ~505
         ], lg=3, md=12, className='mb-3')
     ]),
     
@@ -828,7 +864,8 @@ def update_news(data, news_intervals):
                 news_items = []
                 for i, row in df_news.head(10).iterrows():
                     sentiment_score = row.get('sentiment_score', 0)
-                    hours_ago = int((datetime.now() - pd.to_datetime(row['timestamp'])).total_seconds() / 3600) if 'timestamp' in row else 0
+                    timestamp = row.get('timestamp', None)
+                    time_ago = format_time_ago(timestamp)
                     
                     news_items.append({
                         'title': row.get('title', 'No title')[:100],
@@ -836,7 +873,7 @@ def update_news(data, news_intervals):
                         'sentiment': sentiment_score,
                         'sentiment_label': 'Bullish' if sentiment_score > 0.1 else ('Bearish' if sentiment_score < -0.1 else 'Neutral'),
                         'impact': 'High' if abs(sentiment_score) > 0.3 else 'Medium',
-                        'hours_ago': hours_ago
+                        'time_ago': time_ago
                     })
                 
                 if news_items:
