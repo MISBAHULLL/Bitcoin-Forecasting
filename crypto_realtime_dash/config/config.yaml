@@ -1,0 +1,33 @@
+# MySQL Database Configuration
+database:
+  host: localhost
+  port: 3306
+  user: root
+  password: ""
+  database: crypto_forecast
+
+# API Keys (optional)
+api_keys:
+  lunarcrush: ""  # Optional - leave empty to skip
+
+# Data Settings
+data:
+  binance_symbol: BTCUSDT
+  default_interval: 1h
+  default_limit: 500
+
+# Sentiment Thresholds
+sentiment:
+  bullish_threshold: 0.05
+  bearish_threshold: -0.05
+
+# Fusion Weights
+fusion:
+  news_weight: 0.4
+  twitter_weight: 0.4
+  lunarcrush_weight: 0.2
+
+# Dashboard Settings
+dashboard:
+  refresh_interval: 60000  # milliseconds (60 seconds)
+  port: 8050
