@@ -1,6 +1,8 @@
 """
 Price Fetcher Module - Binance OHLCV Real-time API
 SINTA 1 Bitcoin Forecasting System
+
+With improved fallback for regions where Binance is blocked.
 """
 
 import requests
@@ -20,6 +22,9 @@ BINANCE_24HR = "https://api.binance.com/api/v3/ticker/24hr"
 # Alternative APIs
 COINGECKO_API = "https://api.coingecko.com/api/v3"
 
+# Shorter timeout for faster fallback
+API_TIMEOUT = 5  # seconds
+
 # Timeframe mapping
 TIMEFRAMES = {
     '1m': '1 Minute',
@@ -30,6 +35,34 @@ TIMEFRAMES = {
     '4h': '4 Hours',
     '1d': '1 Day'
 }
+
+# Global flag to skip Binance if connection failed
+_binance_available = True  # Start with True since VPN is now active
+_binance_last_check = 0
+BINANCE_CHECK_INTERVAL = 60  # Re-check Binance availability every 1 minute (reduced for VPN users)
+
+
+def is_binance_available() -> bool:
+    """Check if Binance API is accessible (cache result for 5 minutes)."""
+    global _binance_available, _binance_last_check
+    
+    current_time = time.time()
+    if current_time - _binance_last_check < BINANCE_CHECK_INTERVAL:
+        return _binance_available
+    
+    try:
+        response = requests.get(
+            "https://api.binance.com/api/v3/ping",
+            timeout=3,
+            verify=False
+        )
+        _binance_available = response.status_code == 200
+    except Exception:
+        _binance_available = False
+    
+    _binance_last_check = current_time
+    print(f"[*] Binance API available: {_binance_available}")
+    return _binance_available
 
 
 def fetch_binance_klines(symbol: str = 'BTCUSDT', interval: str = '1h', limit: int = 500) -> pd.DataFrame:
@@ -44,6 +77,11 @@ def fetch_binance_klines(symbol: str = 'BTCUSDT', interval: str = '1h', limit: i
     Returns:
         DataFrame with OHLCV data
     """
+    # Skip if Binance was recently unavailable
+    if not is_binance_available():
+        print("[*] Skipping Binance (unavailable), using fallback...")
+        return pd.DataFrame()
+    
     try:
         params = {
             'symbol': symbol,
@@ -51,7 +89,12 @@ def fetch_binance_klines(symbol: str = 'BTCUSDT', interval: str = '1h', limit: i
             'limit': min(limit, 1000)
         }
         
-        response = requests.get(BINANCE_KLINES, params=params, timeout=10, verify=False)
+        response = requests.get(
+            BINANCE_KLINES, 
+            params=params, 
+            timeout=API_TIMEOUT, 
+            verify=False
+        )
         
         if response.status_code == 200:
             data = response.json()
@@ -77,16 +120,15 @@ def fetch_binance_klines(symbol: str = 'BTCUSDT', interval: str = '1h', limit: i
         else:
             print(f"[!] Binance API error: {response.status_code}")
             
-    except requests.exceptions.SSLError:
-        print("[!] Binance SSL error, trying without verification...")
-        try:
-            response = requests.get(BINANCE_KLINES, params=params, timeout=10, verify=False)
-            if response.status_code == 200:
-                return fetch_binance_klines(symbol, interval, limit)
-        except Exception:
-            pass
+    except requests.exceptions.Timeout:
+        global _binance_available
+        _binance_available = False
+        print("[!] Binance timeout - marked as unavailable, using fallback...")
+    except requests.exceptions.ConnectionError:
+        _binance_available = False
+        print("[!] Binance connection error - marked as unavailable, using fallback...")
     except Exception as e:
-        print(f"[!] Binance error: {e}")
+        print(f"[!] Binance error: {type(e).__name__}: {e}")
     
     return pd.DataFrame()
 
@@ -127,34 +169,43 @@ def fetch_coingecko_ohlc(days: int = 30) -> pd.DataFrame:
 
 def fetch_current_price(symbol: str = 'BTCUSDT') -> dict:
     """
-    Fetch current price from Binance.
+    Fetch current price with smart fallback.
+    CoinGecko is tried first if Binance is known to be unavailable.
     
     Returns:
         Dictionary with price info
     """
-    try:
-        # Get 24hr ticker for more info
-        response = requests.get(
-            BINANCE_24HR, 
-            params={'symbol': symbol}, 
-            timeout=10, 
-            verify=False
-        )
-        
-        if response.status_code == 200:
-            data = response.json()
-            return {
-                'price': float(data.get('lastPrice', 0)),
-                'change_24h': float(data.get('priceChangePercent', 0)),
-                'high_24h': float(data.get('highPrice', 0)),
-                'low_24h': float(data.get('lowPrice', 0)),
-                'volume_24h': float(data.get('volume', 0)),
-                'source': 'Binance',
-                'timestamp': datetime.now().isoformat()
-            }
+    result = None
+    
+    # Try Binance first only if available
+    if is_binance_available():
+        try:
+            response = requests.get(
+                BINANCE_24HR, 
+                params={'symbol': symbol}, 
+                timeout=API_TIMEOUT, 
+                verify=False
+            )
             
-    except Exception as e:
-        print(f"[!] Binance ticker error: {e}")
+            if response.status_code == 200:
+                data = response.json()
+                result = {
+                    'price': float(data.get('lastPrice', 0)),
+                    'change_24h': float(data.get('priceChangePercent', 0)),
+                    'high_24h': float(data.get('highPrice', 0)),
+                    'low_24h': float(data.get('lowPrice', 0)),
+                    'volume_24h': float(data.get('volume', 0)),
+                    'source': 'Binance',
+                    'timestamp': datetime.now().isoformat()
+                }
+                return result
+                
+        except requests.exceptions.Timeout:
+            global _binance_available
+            _binance_available = False
+            print("[!] Binance ticker timeout - switching to CoinGecko")
+        except Exception as e:
+            print(f"[!] Binance ticker error: {type(e).__name__}")
     
     # Fallback to CoinGecko
     try:
@@ -170,18 +221,21 @@ def fetch_current_price(symbol: str = 'BTCUSDT') -> dict:
         
         if response.status_code == 200:
             data = response.json().get('bitcoin', {})
-            return {
+            result = {
                 'price': data.get('usd', 0),
                 'change_24h': data.get('usd_24h_change', 0),
                 'volume_24h': data.get('usd_24h_vol', 0),
                 'source': 'CoinGecko',
                 'timestamp': datetime.now().isoformat()
             }
+            print(f"[+] CoinGecko: Price ${result['price']:,.0f}")
+            return result
             
     except Exception as e:
-        print(f"[!] CoinGecko ticker error: {e}")
+        print(f"[!] CoinGecko ticker error: {type(e).__name__}")
     
     # Return sample data if all APIs fail
+    print("[*] Using sample price data")
     return {
         'price': 97500 + np.random.uniform(-500, 500),
         'change_24h': np.random.uniform(-3, 3),

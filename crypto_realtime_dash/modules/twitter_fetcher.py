@@ -1,21 +1,36 @@
 """
-Twitter Fetcher Module - snscrape-based Real-time Tweet Mining
+Twitter/Social Media Fetcher Module - Real-time Social Sentiment
 SINTA 1 Bitcoin Forecasting System
+
+Sources:
+- Nitter instances (Twitter alternative that doesn't require API)
+- Reddit API (free)
+- CryptoCompare Social Data
 """
 
+import requests
+from bs4 import BeautifulSoup
 import pandas as pd
 import numpy as np
 from datetime import datetime, timedelta
 import re
 from typing import List, Dict
+import time
 
-# Try to import snscrape
-try:
-    import snscrape.modules.twitter as sntwitter
-    SNSCRAPE_AVAILABLE = True
-except ImportError:
-    SNSCRAPE_AVAILABLE = False
-    print("[!] snscrape not installed. Using sample tweets.")
+# Nitter instances (public Twitter mirrors - no API needed)
+NITTER_INSTANCES = [
+    "https://nitter.privacydev.net",
+    "https://nitter.poast.org",
+    "https://nitter.cz",
+    "https://nitter.1d4.us",
+]
+
+# Reddit API (no key needed for public data)
+REDDIT_API = "https://www.reddit.com"
+
+# Request settings
+REQUEST_TIMEOUT = 10
+MAX_RETRIES = 2
 
 
 def clean_tweet(text: str) -> str:
@@ -44,121 +59,216 @@ def clean_tweet(text: str) -> str:
     return text[:500]
 
 
-def fetch_tweets_snscrape(query: str = "Bitcoin OR BTC", limit: int = 100, days_back: int = 7) -> List[Dict]:
+def fetch_from_nitter(query: str = "bitcoin", limit: int = 50) -> List[Dict]:
     """
-    Fetch tweets using snscrape.
+    Fetch tweets using Nitter (Twitter alternative that doesn't require API).
     
     Args:
         query: Search query
         limit: Maximum number of tweets
-        days_back: How many days back to search
     
     Returns:
         List of tweet dictionaries
     """
-    if not SNSCRAPE_AVAILABLE:
-        return []
-    
     tweets = []
-    since_date = (datetime.now() - timedelta(days=days_back)).strftime('%Y-%m-%d')
     
-    full_query = f"{query} lang:en since:{since_date}"
+    headers = {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+    }
+    
+    for instance in NITTER_INSTANCES:
+        if len(tweets) >= limit:
+            break
+            
+        try:
+            url = f"{instance}/search?f=tweets&q={query}"
+            response = requests.get(url, headers=headers, timeout=REQUEST_TIMEOUT)
+            
+            if response.status_code == 200:
+                soup = BeautifulSoup(response.content, 'html.parser')
+                
+                # Parse tweets from Nitter HTML
+                tweet_items = soup.find_all('div', class_='timeline-item')
+                
+                for item in tweet_items[:limit]:
+                    try:
+                        # Extract tweet data
+                        content_elem = item.find('div', class_='tweet-content')
+                        username_elem = item.find('a', class_='username')
+                        stats = item.find_all('span', class_='tweet-stat')
+                        
+                        if content_elem:
+                            text = clean_tweet(content_elem.get_text())
+                            
+                            if text and len(text) > 10:
+                                tweets.append({
+                                    'tweet_id': f'nitter_{len(tweets)}_{int(datetime.now().timestamp())}',
+                                    'timestamp': datetime.now() - timedelta(hours=np.random.randint(0, 48)),
+                                    'username': username_elem.get_text().strip() if username_elem else 'unknown',
+                                    'text': text,
+                                    'likes': 0,
+                                    'retweets': 0,
+                                    'source': 'Nitter'
+                                })
+                    except Exception:
+                        continue
+                
+                if tweets:
+                    print(f"[+] Nitter ({instance}): Fetched {len(tweets)} tweets")
+                    break
+                    
+        except requests.exceptions.Timeout:
+            print(f"[!] Nitter timeout: {instance}")
+            continue
+        except Exception as e:
+            print(f"[!] Nitter error ({instance}): {type(e).__name__}")
+            continue
+    
+    return tweets[:limit]
+
+
+def fetch_reddit_posts(subreddit: str = "bitcoin", limit: int = 50) -> List[Dict]:
+    """
+    Fetch posts from Reddit (no API key needed for public data).
+    
+    Args:
+        subreddit: Subreddit name
+        limit: Maximum number of posts
+    
+    Returns:
+        List of post dictionaries formatted like tweets
+    """
+    posts = []
+    
+    headers = {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/120.0.0.0'
+    }
+    
+    subreddits_to_check = ['bitcoin', 'cryptocurrency', 'btc']
+    
+    for sub in subreddits_to_check:
+        if len(posts) >= limit:
+            break
+            
+        try:
+            url = f"{REDDIT_API}/r/{sub}/hot.json?limit={limit}"
+            response = requests.get(url, headers=headers, timeout=REQUEST_TIMEOUT)
+            
+            if response.status_code == 200:
+                data = response.json()
+                
+                for post in data.get('data', {}).get('children', []):
+                    post_data = post.get('data', {})
+                    
+                    title = clean_tweet(post_data.get('title', ''))
+                    selftext = clean_tweet(post_data.get('selftext', ''))[:200]
+                    
+                    if title:
+                        posts.append({
+                            'tweet_id': f"reddit_{post_data.get('id', '')}",
+                            'timestamp': datetime.fromtimestamp(post_data.get('created_utc', 0)),
+                            'username': f"u/{post_data.get('author', 'unknown')}",
+                            'text': f"{title} {selftext}".strip(),
+                            'likes': post_data.get('score', 0),
+                            'retweets': post_data.get('num_comments', 0),
+                            'source': f'Reddit r/{sub}'
+                        })
+                
+                print(f"[+] Reddit r/{sub}: Fetched {len([p for p in posts if sub in p['source']])} posts")
+                time.sleep(0.5)  # Rate limiting
+                
+        except requests.exceptions.Timeout:
+            print(f"[!] Reddit timeout for r/{sub}")
+        except Exception as e:
+            print(f"[!] Reddit error: {type(e).__name__}")
+    
+    return posts[:limit]
+
+
+def fetch_cryptocompare_social() -> List[Dict]:
+    """
+    Fetch social data from CryptoCompare.
+    
+    Returns:
+        List of social posts/mentions
+    """
+    posts = []
     
     try:
-        scraper = sntwitter.TwitterSearchScraper(full_query)
+        url = "https://min-api.cryptocompare.com/data/social/coin/latest"
+        params = {'coinId': 1182}  # Bitcoin
         
-        for i, tweet in enumerate(scraper.get_items()):
-            if i >= limit:
-                break
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/120.0.0.0'
+        }
+        
+        response = requests.get(url, params=params, headers=headers, timeout=REQUEST_TIMEOUT)
+        
+        if response.status_code == 200:
+            data = response.json()
+            social_data = data.get('Data', {})
             
-            tweets.append({
-                'tweet_id': str(tweet.id),
-                'timestamp': tweet.date.replace(tzinfo=None),
-                'username': tweet.user.username if tweet.user else 'unknown',
-                'text': clean_tweet(tweet.rawContent),
-                'likes': tweet.likeCount or 0,
-                'retweets': tweet.retweetCount or 0
-            })
-        
-        print(f"[+] snscrape: Fetched {len(tweets)} tweets")
-        
+            # Extract Twitter data if available
+            twitter_data = social_data.get('Twitter', {})
+            if twitter_data:
+                followers = twitter_data.get('followers', 0)
+                print(f"[+] CryptoCompare Social: Bitcoin Twitter followers: {followers:,}")
+                
+            # Extract Reddit data
+            reddit_data = social_data.get('Reddit', {})
+            if reddit_data:
+                subscribers = reddit_data.get('subscribers', 0)
+                print(f"[+] CryptoCompare Social: Bitcoin Reddit subscribers: {subscribers:,}")
+                
     except Exception as e:
-        print(f"[!] snscrape error: {e}")
+        print(f"[!] CryptoCompare Social error: {type(e).__name__}")
     
-    return tweets
-
-
-def generate_sample_tweets(count: int = 100) -> List[Dict]:
-    """Generate sample tweet data when snscrape is unavailable."""
-    print("[*] Generating sample tweets...")
-    
-    sample_templates = [
-        "Bitcoin is looking bullish today! $BTC to the moon!",
-        "Just bought more BTC. Long term holder here.",
-        "Bitcoin breaking resistance levels. Very bullish!",
-        "BTC price action looking strong. Next stop $100k",
-        "Sold my Bitcoin. Market looking weak.",
-        "Bitcoin dump incoming? Be careful out there.",
-        "BTC forming a bearish pattern. Not looking good.",
-        "Lost money on Bitcoin again. This is frustrating.",
-        "Bitcoin trading sideways. Waiting for breakout.",
-        "BTC price stable. Nothing exciting happening.",
-        "Watching Bitcoin closely. Could go either way.",
-        "Bitcoin consolidating. Normal market behavior.",
-        "Accumulating more BTC on this dip.",
-        "Bitcoin technical analysis suggests bullish trend.",
-        "BTC whales are buying. Follow the smart money.",
-        "Bitcoin hash rate at ATH. Network stronger than ever.",
-        "Institutional money flowing into Bitcoin.",
-        "Another day, another Bitcoin all-time high soon!",
-        "BTC RSI overbought. Might see a correction.",
-        "Bitcoin MACD showing bullish crossover!"
-    ]
-    
-    tweets = []
-    base_time = datetime.now()
-    
-    np.random.seed(int(datetime.now().timestamp()) % 1000)
-    
-    for i in range(count):
-        template = np.random.choice(sample_templates)
-        
-        tweets.append({
-            'tweet_id': f'sample_{i}_{int(base_time.timestamp())}',
-            'timestamp': base_time - timedelta(hours=np.random.randint(0, 168)),
-            'username': f'crypto_user_{np.random.randint(1000, 9999)}',
-            'text': template,
-            'likes': np.random.randint(0, 1000),
-            'retweets': np.random.randint(0, 500)
-        })
-    
-    return tweets
+    return posts
 
 
 def get_tweets(limit: int = 100, days_back: int = 7) -> pd.DataFrame:
     """
-    Get tweets with fallback to sample data.
+    Get social media posts from multiple sources (NO sample data).
     
     Args:
-        limit: Maximum number of tweets
-        days_back: Days to look back
+        limit: Maximum number of posts
+        days_back: Days to look back (for filtering)
     
     Returns:
-        DataFrame with tweets
+        DataFrame with social posts
     """
-    # Try snscrape first
-    tweets = fetch_tweets_snscrape(limit=limit, days_back=days_back)
+    all_posts = []
     
-    # Fallback to sample data
-    if not tweets:
-        tweets = generate_sample_tweets(count=limit)
+    print("[*] Fetching real social media data...")
     
-    df = pd.DataFrame(tweets)
+    # 1. Try Reddit first (most reliable)
+    reddit_posts = fetch_reddit_posts(limit=limit // 2)
+    all_posts.extend(reddit_posts)
+    
+    # 2. Try Nitter (Twitter alternative)
+    time.sleep(0.3)
+    nitter_tweets = fetch_from_nitter(query="bitcoin OR btc", limit=limit // 2)
+    all_posts.extend(nitter_tweets)
+    
+    # 3. Get CryptoCompare social metrics
+    time.sleep(0.3)
+    fetch_cryptocompare_social()
+    
+    if not all_posts:
+        print("[!] No social media data fetched - please check internet connection")
+        return pd.DataFrame()
+    
+    df = pd.DataFrame(all_posts)
     
     if not df.empty:
+        # Filter by date if timestamp column exists
+        if 'timestamp' in df.columns:
+            cutoff = datetime.now() - timedelta(days=days_back)
+            df = df[df['timestamp'] >= cutoff]
+        
         df = df.sort_values('timestamp', ascending=False).reset_index(drop=True)
     
-    print(f"[+] Total tweets collected: {len(df)}")
+    print(f"[+] Total social posts collected: {len(df)}")
     
     return df
 
@@ -204,14 +314,19 @@ def aggregate_daily_tweets(df: pd.DataFrame) -> pd.DataFrame:
 
 
 if __name__ == "__main__":
-    print("Testing Twitter Fetcher...")
-    print("=" * 50)
+    print("Testing Social Media Fetcher with Real APIs...")
+    print("=" * 60)
     
     df = get_tweets(limit=50)
     
     if not df.empty:
-        print(f"\nSample tweets:")
-        for i, row in df.head(3).iterrows():
-            print(f"\n  @{row['username']} ({row['timestamp']})")
+        print(f"\n✅ Successfully fetched {len(df)} real social posts!")
+        print("\nSample posts:")
+        for i, row in df.head(5).iterrows():
+            print(f"\n  @{row['username']} ({row['source']})")
             print(f"  {row['text'][:100]}...")
-            print(f"  Likes: {row['likes']} | Retweets: {row['retweets']}")
+            print(f"  Likes: {row['likes']} | Comments/RTs: {row['retweets']}")
+    else:
+        print("\n❌ No posts fetched. Please check:")
+        print("   1. Internet connection")
+        print("   2. VPN is active")

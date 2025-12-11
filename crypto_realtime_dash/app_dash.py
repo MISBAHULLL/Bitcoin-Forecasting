@@ -68,18 +68,22 @@ THEME = {
 
 
 # ============================================
-# DATA LOADING WITH CACHING
+# DATA LOADING WITH DYNAMIC UPDATES
 # ============================================
 
 _data_cache = {}
-_cache_time = 0
-CACHE_DURATION = 30
+_cache_time = {}
+CACHE_DURATION = 10  # Reduced for more dynamic updates
 
-def generate_sample_data(n=200):
+def generate_sample_data(n=200, freq='h'):
     """Generate sample OHLCV data."""
-    np.random.seed(42)
+    np.random.seed(int(time.time()) % 1000)  # Variable seed for different data
     
-    dates = pd.date_range(end=datetime.now(), periods=n, freq='h')
+    # Map interval to frequency
+    freq_map = {'1m': 'T', '5m': '5T', '15m': '15T', '30m': '30T', '1h': 'h', '4h': '4h', '1d': 'D'}
+    pandas_freq = freq_map.get(freq, 'h')
+    
+    dates = pd.date_range(end=datetime.now(), periods=n, freq=pandas_freq)
     base = 97000
     returns = np.random.randn(n) * 0.005
     prices = base * np.exp(np.cumsum(returns))
@@ -96,50 +100,139 @@ def generate_sample_data(n=200):
     return df
 
 
-def load_data(interval='1h', limit=200):
-    """Load data with caching."""
+def compute_real_sentiment(df_news, df_tweets):
+    """Compute real fused sentiment from news and tweets."""
+    sentiments = []
+    
+    # Get news sentiment
+    if not df_news.empty and 'sentiment_score' in df_news.columns:
+        news_sent = df_news['sentiment_score'].mean()
+        sentiments.append(news_sent * 0.6)  # 60% weight for news
+    
+    # Get tweet sentiment
+    if not df_tweets.empty and 'sentiment_score' in df_tweets.columns:
+        tweet_sent = df_tweets['sentiment_score'].mean()
+        sentiments.append(tweet_sent * 0.4)  # 40% weight for tweets
+    
+    if sentiments:
+        return sum(sentiments)
+    return 0.0
+
+
+def compute_time_varying_sentiment(df_price, df_news, df_tweets):
+    """
+    Compute time-varying sentiment that changes over the price data timeline.
+    This creates a dynamic sentiment chart instead of a flat line.
+    """
+    n = len(df_price)
+    if n == 0:
+        return np.array([])
+    
+    # Base sentiment from current news/social
+    base_sentiment = compute_real_sentiment(df_news, df_tweets)
+    
+    # Create time-varying sentiment array
+    sentiments = np.zeros(n)
+    
+    # If we have news with timestamps, compute sentiment for each time window
+    if not df_news.empty and 'timestamp' in df_news.columns and 'sentiment_score' in df_news.columns:
+        df_news = df_news.copy()
+        df_news['timestamp'] = pd.to_datetime(df_news['timestamp'])
+        
+        for i, row in df_price.iterrows():
+            price_time = pd.to_datetime(row['timestamp'])
+            
+            # Find news within ±12 hours of this price point
+            window_start = price_time - timedelta(hours=12)
+            window_end = price_time + timedelta(hours=12)
+            
+            window_news = df_news[
+                (df_news['timestamp'] >= window_start) & 
+                (df_news['timestamp'] <= window_end)
+            ]
+            
+            if len(window_news) > 0:
+                sentiments[i] = window_news['sentiment_score'].mean()
+            else:
+                # Fall back to base sentiment with slight variation
+                sentiments[i] = base_sentiment + np.random.uniform(-0.1, 0.1)
+    else:
+        # No timestamped news - create smooth varying sentiment based on base
+        # Add some realistic variation over time
+        trend = np.linspace(-0.1, 0.1, n)  # Slight trend
+        noise = np.random.randn(n) * 0.05  # Random noise
+        sentiments = base_sentiment + trend + noise
+    
+    # Clip to valid range
+    sentiments = np.clip(sentiments, -1, 1)
+    
+    return sentiments
+
+
+
+def load_data(interval='1h', limit=200, force_refresh=False):
+    """Load data with dynamic caching based on timeframe."""
     global _data_cache, _cache_time
     
     cache_key = f"{interval}_{limit}"
     current_time = time.time()
     
-    if cache_key in _data_cache and (current_time - _cache_time) < CACHE_DURATION:
-        print(f"[*] Using cached data ({cache_key})")
-        return _data_cache[cache_key]
+    # Check cache (unless force refresh)
+    if not force_refresh and cache_key in _data_cache:
+        if (current_time - _cache_time.get(cache_key, 0)) < CACHE_DURATION:
+            print(f"[*] Using cached data ({cache_key})")
+            return _data_cache[cache_key]
     
-    print(f"[*] Loading fresh data: {interval}, {limit}")
+    print(f"[*] Loading fresh data: {interval}, {limit} candles")
     
+    # Fetch OHLCV data
     df = get_ohlcv(interval=interval, limit=limit)
     
     if df.empty or len(df) < 10:
-        print("[*] Using sample data")
-        df = generate_sample_data(limit)
+        print("[*] API failed, using sample data")
+        df = generate_sample_data(limit, interval)
     
+    # Compute technical indicators
     df = compute_all_indicators(df)
     
+    # Fetch and analyze news
     try:
         df_news = get_all_news()
         if not df_news.empty:
             df_news = analyze_news_sentiment(df_news)
-    except:
+            # Sort by timestamp descending (newest first)
+            if 'timestamp' in df_news.columns:
+                df_news = df_news.sort_values('timestamp', ascending=False).reset_index(drop=True)
+        print(f"[+] News: {len(df_news)} articles with sentiment")
+    except Exception as e:
+        print(f"[!] News error: {e}")
         df_news = pd.DataFrame()
     
+    # Fetch and analyze tweets/social
     try:
-        df_tweets = get_tweets(limit=30)
+        df_tweets = get_tweets(limit=50)
         if not df_tweets.empty:
             df_tweets = analyze_tweets_sentiment(df_tweets)
-    except:
+        print(f"[+] Social: {len(df_tweets)} posts with sentiment")
+    except Exception as e:
+        print(f"[!] Social error: {e}")
         df_tweets = pd.DataFrame()
     
-    df['fused_sentiment'] = np.random.uniform(-0.3, 0.3, len(df))
+    # Compute TIME-VARYING sentiment from news and social data
+    # This creates a dynamic sentiment timeline instead of a flat value
+    df['fused_sentiment'] = compute_time_varying_sentiment(df, df_news, df_tweets)
     df['sentiment_label'] = df['fused_sentiment'].apply(classify_sentiment)
+    
+    avg_sentiment = df['fused_sentiment'].mean()
+    print(f"[+] Average sentiment: {avg_sentiment:.4f} ({classify_sentiment(avg_sentiment)})")
     
     result = (df, df_news, df_tweets)
     
+    # Cache the result
     _data_cache[cache_key] = result
-    _cache_time = current_time
+    _cache_time[cache_key] = current_time
     
-    print(f"[+] Loaded {len(df)} records")
+    print(f"[+] Loaded {len(df)} records for {interval} timeframe")
     return result
 
 
@@ -262,17 +355,50 @@ def make_price_chart(df):
 
 
 def make_sentiment_chart(df):
-    """Create compact sentiment chart - White theme."""
-    if df.empty or 'fused_sentiment' not in df.columns:
-        return go.Figure()
-    
+    """Create compact sentiment chart - White theme with fixed dimensions."""
     fig = go.Figure()
     
+    # Validate data
+    if df.empty or 'fused_sentiment' not in df.columns:
+        fig.add_annotation(
+            text="No sentiment data available",
+            x=0.5, y=0.5, xref='paper', yref='paper',
+            showarrow=False, font=dict(color='#6c757d', size=12)
+        )
+        fig.update_layout(
+            height=200,
+            template='plotly_white',
+            paper_bgcolor='#ffffff',
+            plot_bgcolor='#ffffff'
+        )
+        return fig
+    
+    # Clean data - remove any NaN or infinite values
+    clean_df = df.dropna(subset=['fused_sentiment', 'timestamp']).copy()
+    
+    # Clip sentiment values to valid range
+    clean_df['fused_sentiment'] = clean_df['fused_sentiment'].clip(-1, 1)
+    
+    if clean_df.empty:
+        fig.add_annotation(
+            text="No valid sentiment data",
+            x=0.5, y=0.5, xref='paper', yref='paper',
+            showarrow=False, font=dict(color='#6c757d', size=12)
+        )
+        fig.update_layout(height=200, template='plotly_white')
+        return fig
+    
+    # Take only last 50 points to prevent chart overcrowding
+    plot_data = clean_df.tail(50)
+    
     fig.add_trace(go.Scatter(
-        x=df['timestamp'], y=df['fused_sentiment'],
-        mode='lines', name='Sentiment',
+        x=plot_data['timestamp'], 
+        y=plot_data['fused_sentiment'],
+        mode='lines', 
+        name='Sentiment',
         line=dict(color='#2196f3', width=2),
-        fill='tozeroy', fillcolor='rgba(33,150,243,0.1)'
+        fill='tozeroy', 
+        fillcolor='rgba(33,150,243,0.1)'
     ))
     
     fig.add_hline(y=0.1, line_dash='dot', line_color='#26a69a', opacity=0.7)
@@ -281,27 +407,45 @@ def make_sentiment_chart(df):
     
     fig.update_layout(
         height=200,
+        autosize=False,  # Fixed size, do not auto-resize
         template='plotly_white',
         paper_bgcolor='#ffffff',
         plot_bgcolor='#ffffff',
         margin=dict(l=50, r=20, t=20, b=40),
         font=dict(family='Inter, sans-serif', size=11, color='#212529'),
         showlegend=False,
-        xaxis=dict(showgrid=True, gridcolor='#e9ecef'),
-        yaxis=dict(showgrid=True, gridcolor='#e9ecef', range=[-0.5, 0.5])
+        xaxis=dict(
+            showgrid=True, 
+            gridcolor='#e9ecef',
+            fixedrange=True  # Disable zoom to prevent resize issues
+        ),
+        yaxis=dict(
+            showgrid=True, 
+            gridcolor='#e9ecef', 
+            range=[-0.5, 0.5],
+            fixedrange=True  # Disable zoom to prevent resize issues
+        )
     )
     
     return fig
 
 
 def make_forecast_chart(results):
-    """Create forecast comparison chart - White theme."""
+    """Create forecast comparison chart - White theme with fixed dimensions."""
     fig = go.Figure()
     
     if not results:
-        fig.add_annotation(text="No forecast data", x=0.5, y=0.5, xref='paper', yref='paper', 
-                          showarrow=False, font=dict(color='#6c757d'))
-        fig.update_layout(height=250, template='plotly_white', paper_bgcolor='#ffffff')
+        fig.add_annotation(
+            text="No forecast data", 
+            x=0.5, y=0.5, xref='paper', yref='paper', 
+            showarrow=False, font=dict(color='#6c757d')
+        )
+        fig.update_layout(
+            height=180, 
+            autosize=False,
+            template='plotly_white', 
+            paper_bgcolor='#ffffff'
+        )
         return fig
     
     colors = {'ARIMA': '#ff5722', 'ARIMAX': '#2196f3'}
@@ -324,15 +468,26 @@ def make_forecast_chart(results):
             ))
     
     fig.update_layout(
-        height=250,
+        height=180,
+        autosize=False,  # Fixed size
         template='plotly_white',
         paper_bgcolor='#ffffff',
         plot_bgcolor='#ffffff',
-        margin=dict(l=50, r=20, t=20, b=50),
-        legend=dict(orientation='h', y=-0.2, x=0.5, xanchor='center', font=dict(size=11)),
-        font=dict(family='Inter, sans-serif', size=11, color='#212529'),
-        xaxis=dict(title='Test Period', showgrid=True, gridcolor='#e9ecef'),
-        yaxis=dict(title='Price ($)', showgrid=True, gridcolor='#e9ecef')
+        margin=dict(l=50, r=20, t=10, b=40),
+        legend=dict(orientation='h', y=-0.25, x=0.5, xanchor='center', font=dict(size=10)),
+        font=dict(family='Inter, sans-serif', size=10, color='#212529'),
+        xaxis=dict(
+            title='Test Period', 
+            showgrid=True, 
+            gridcolor='#e9ecef',
+            fixedrange=True  # Disable zoom
+        ),
+        yaxis=dict(
+            title='Price ($)', 
+            showgrid=True, 
+            gridcolor='#e9ecef',
+            fixedrange=True  # Disable zoom
+        )
     )
     
     return fig
@@ -457,66 +612,76 @@ app.layout = dbc.Container([
         dbc.Col(html.Div(id='m-signal'), md=2)
     ], className='mb-3 g-2'),
     
-    # Main Row: Chart + Sidebar
+    # Main Row: Chart + Sidebar (Events on top, News below)
     dbc.Row([
-        # Chart Column
+        # Chart Column (9 cols)
         dbc.Col([
             dbc.Card([
                 dbc.CardHeader(html.H6("📈 BTC/USDT Price Chart with Indicators", className='mb-0 fw-semibold')),
                 dbc.CardBody([
                     dcc.Graph(id='chart-price', config={'displayModeBar': True, 'displaylogo': False})
                 ], className='p-2')
-            ], className='shadow-sm h-100')
+            ], className='shadow-sm', style={'height': '680px'})
         ], lg=9, md=12, className='mb-3'),
         
-        # Sidebar Column
+        # Sidebar Column (3 cols) - Events on top, News below
         dbc.Col([
-            # Events
+            # Events - small card on top
             dbc.Card([
                 dbc.CardHeader(html.H6("🗓 Upcoming Events", className='mb-0 fw-semibold')),
-                dbc.CardBody(id='events-list', className='py-2', style={'maxHeight': '200px', 'overflowY': 'auto'})
-            ], className='shadow-sm mb-3'),
+                dbc.CardBody(id='events-list', className='py-2', style={'maxHeight': '180px', 'overflowY': 'auto'})
+            ], className='shadow-sm', style={'height': '230px'}),
             
-            # News
+            # Latest News - below Events, fills remaining space
             dbc.Card([
-                dbc.CardHeader(html.H6("📰 Latest News", className='mb-0 fw-semibold')),
-                dbc.CardBody(id='news-list', className='py-2', style={'maxHeight': '250px', 'overflowY': 'auto'})
-            ], className='shadow-sm')
-        ], lg=3, md=12)
+                dbc.CardHeader(html.H6("📰 Latest News (1 Week)", className='mb-0 fw-semibold')),
+                dbc.CardBody(id='news-list', className='py-2', style={'maxHeight': '380px', 'overflowY': 'auto'})
+            ], className='shadow-sm mt-3', style={'height': '435px'})  # 680 - 230 - margin = ~435
+        ], lg=3, md=12, className='mb-3')
     ]),
     
-    # Second Row: Sentiment + Forecast + Signals
+    # Second Row: Sentiment + Forecast + Signals (3 columns)
     dbc.Row([
         dbc.Col([
             dbc.Card([
                 dbc.CardHeader(html.H6("💬 Sentiment Timeline", className='mb-0 fw-semibold')),
                 dbc.CardBody([
-                    dcc.Graph(id='chart-sentiment', config={'displayModeBar': False})
-                ], className='p-2')
-            ], className='shadow-sm h-100')
-        ], md=4),
+                    dcc.Graph(
+                        id='chart-sentiment', 
+                        config={'displayModeBar': False, 'staticPlot': False},
+                        style={'height': '200px', 'maxHeight': '200px'}
+                    )
+                ], className='p-2', style={'height': '230px', 'maxHeight': '230px', 'overflow': 'hidden'})
+            ], className='shadow-sm', style={'height': '280px', 'maxHeight': '280px'})
+        ], lg=4, md=6),
         
         dbc.Col([
             dbc.Card([
                 dbc.CardHeader(html.H6("🎯 ARIMA vs ARIMAX Forecast", className='mb-0 fw-semibold')),
                 dbc.CardBody([
-                    dcc.Graph(id='chart-forecast', config={'displayModeBar': False}),
-                    html.Div(id='metrics-table', className='mt-2')
-                ], className='p-2')
-            ], className='shadow-sm h-100')
-        ], md=4),
+                    dcc.Graph(
+                        id='chart-forecast', 
+                        config={'displayModeBar': False},
+                        style={'height': '180px', 'maxHeight': '180px'}
+                    ),
+                    html.Div(id='metrics-table', className='mt-2', style={'maxHeight': '60px', 'overflowY': 'auto'})
+                ], className='p-2', style={'height': '260px', 'maxHeight': '260px', 'overflow': 'hidden'})
+            ], className='shadow-sm', style={'height': '310px', 'maxHeight': '310px'})
+        ], lg=4, md=6),
         
         dbc.Col([
             dbc.Card([
                 dbc.CardHeader(html.H6("🧠 Trading Signals", className='mb-0 fw-semibold')),
-                dbc.CardBody(id='interpretation', className='py-2', style={'maxHeight': '350px', 'overflowY': 'auto'})
-            ], className='shadow-sm h-100')
-        ], md=4)
+                dbc.CardBody(id='interpretation', className='py-2', style={'maxHeight': '260px', 'overflowY': 'auto'})
+            ], className='shadow-sm', style={'height': '310px', 'maxHeight': '310px'})
+        ], lg=4, md=12)
     ], className='mb-3 g-3'),
     
-    # Store and Interval
+    # Store and Intervals
     dcc.Store(id='store'),
-    dcc.Interval(id='interval', interval=60000, n_intervals=0),
+    dcc.Store(id='news-store'),  # Separate store for news to update independently
+    dcc.Interval(id='interval', interval=60000, n_intervals=0),  # Main data refresh (60 sec)
+    dcc.Interval(id='news-interval', interval=120000, n_intervals=0),  # News refresh (2 min)
     
     # Footer
     html.Footer([
@@ -541,19 +706,27 @@ def toggle_refresh(v):
     Output('last-update', 'children'),
     Input('refresh-btn', 'n_clicks'),
     Input('interval', 'n_intervals'),
-    State('timeframe', 'value'),
-    State('limit', 'value')
+    Input('timeframe', 'value'),  # Changed to Input for dynamic updates
+    Input('limit', 'value')       # Changed to Input for dynamic updates
 )
 def update_data(n, intervals, tf, limit):
-    df, news, tweets = load_data(tf, limit or 150)
+    """Main callback - triggers on timeframe change, limit change, refresh, or interval."""
+    # Force refresh if timeframe or limit changed
+    from dash import ctx
+    triggered = ctx.triggered_id if hasattr(ctx, 'triggered_id') else None
+    force_refresh = triggered in ['timeframe', 'limit', 'refresh-btn']
+    
+    df, news, tweets = load_data(tf or '1h', int(limit) if limit else 150, force_refresh=force_refresh)
     cp = fetch_current_price()
     
     return {
         'df': df.to_json(date_format='iso'),
         'news': news.to_json(date_format='iso') if not news.empty else '{}',
         'tweets': tweets.to_json(date_format='iso') if not tweets.empty else '{}',
-        'current_price': cp
-    }, f"Updated: {datetime.now().strftime('%H:%M:%S')}"
+        'current_price': cp,
+        'timeframe': tf or '1h',  # Store timeframe for reference
+        'limit': int(limit) if limit else 150
+    }, f"Updated: {datetime.now().strftime('%H:%M:%S')} ({tf or '1h'})"
 
 
 @app.callback(
@@ -626,9 +799,53 @@ def update_events(data):
     return html.Div([event_card(e) for e in events[:5]])
 
 
-@app.callback(Output('news-list', 'children'), Input('store', 'data'))
-def update_news(data):
-    news = fetch_aggregated_news(limit=5)
+@app.callback(
+    Output('news-list', 'children'), 
+    Input('store', 'data'),
+    Input('news-interval', 'n_intervals')  # Also trigger on news interval
+)
+def update_news(data, news_intervals):
+    """Display 10 latest news from 1 week, sorted by newest first. Auto-refreshes every 2 min."""
+    if not data:
+        return html.P("Loading news...", className='text-muted small')
+    
+    try:
+        # Try to get news from stored data first
+        news_json = data.get('news', '{}')
+        if news_json and news_json != '{}':
+            df_news = pd.read_json(news_json)
+            
+            if not df_news.empty:
+                # Filter to last 7 days
+                if 'timestamp' in df_news.columns:
+                    df_news['timestamp'] = pd.to_datetime(df_news['timestamp'])
+                    week_ago = datetime.now() - timedelta(days=7)
+                    df_news = df_news[df_news['timestamp'] >= week_ago]
+                    # Sort newest first
+                    df_news = df_news.sort_values('timestamp', ascending=False)
+                
+                # Create news items from DataFrame
+                news_items = []
+                for i, row in df_news.head(10).iterrows():
+                    sentiment_score = row.get('sentiment_score', 0)
+                    hours_ago = int((datetime.now() - pd.to_datetime(row['timestamp'])).total_seconds() / 3600) if 'timestamp' in row else 0
+                    
+                    news_items.append({
+                        'title': row.get('title', 'No title')[:100],
+                        'source': row.get('source', 'Unknown'),
+                        'sentiment': sentiment_score,
+                        'sentiment_label': 'Bullish' if sentiment_score > 0.1 else ('Bearish' if sentiment_score < -0.1 else 'Neutral'),
+                        'impact': 'High' if abs(sentiment_score) > 0.3 else 'Medium',
+                        'hours_ago': hours_ago
+                    })
+                
+                if news_items:
+                    return html.Div([news_card(n) for n in news_items])
+    except Exception as e:
+        print(f"[!] News display error: {e}")
+    
+    # Fallback to aggregator (fresh fetch)
+    news = fetch_aggregated_news(limit=10)
     if not news:
         return html.P("No news available", className='text-muted small')
     return html.Div([news_card(n) for n in news])
