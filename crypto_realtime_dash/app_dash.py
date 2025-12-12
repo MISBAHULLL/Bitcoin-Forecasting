@@ -676,21 +676,53 @@ app.layout = dbc.Container([
         ], lg=3, md=12, className='mb-3')
     ]),
     
-    # Second Row: Sentiment + Forecast + Signals (3 columns)
+    # Second Row: News Sentiment + Social Sentiment + Trading Signals (3 columns)
     dbc.Row([
+        # News Sentiment Panel with Breakdown
         dbc.Col([
             dbc.Card([
-                dbc.CardHeader(html.H6("💬 Sentiment Timeline", className='mb-0 fw-semibold')),
+                dbc.CardHeader(html.H6("📰 News Sentiment Analysis", className='mb-0 fw-semibold')),
                 dbc.CardBody([
+                    # Sentiment breakdown stats
+                    html.Div(id='news-sentiment-stats', className='mb-2'),
+                    # Sentiment chart
                     dcc.Graph(
                         id='chart-sentiment', 
                         config={'displayModeBar': False, 'staticPlot': False},
-                        style={'height': '200px', 'maxHeight': '200px'}
+                        style={'height': '150px', 'maxHeight': '150px'}
                     )
-                ], className='p-2', style={'height': '230px', 'maxHeight': '230px', 'overflow': 'hidden'})
-            ], className='shadow-sm', style={'height': '280px', 'maxHeight': '280px'})
+                ], className='p-2', style={'height': '260px', 'maxHeight': '260px', 'overflow': 'hidden'})
+            ], className='shadow-sm', style={'height': '310px', 'maxHeight': '310px'})
         ], lg=4, md=6),
         
+        # Social/Twitter Sentiment Panel with Breakdown
+        dbc.Col([
+            dbc.Card([
+                dbc.CardHeader(html.H6("🐦 Social Media Sentiment", className='mb-0 fw-semibold')),
+                dbc.CardBody([
+                    # Social sentiment breakdown stats
+                    html.Div(id='social-sentiment-stats', className='mb-2'),
+                    # Social sentiment chart
+                    dcc.Graph(
+                        id='chart-social-sentiment', 
+                        config={'displayModeBar': False, 'staticPlot': False},
+                        style={'height': '150px', 'maxHeight': '150px'}
+                    )
+                ], className='p-2', style={'height': '260px', 'maxHeight': '260px', 'overflow': 'hidden'})
+            ], className='shadow-sm', style={'height': '310px', 'maxHeight': '310px'})
+        ], lg=4, md=6),
+        
+        # Trading Signals Panel
+        dbc.Col([
+            dbc.Card([
+                dbc.CardHeader(html.H6("🧠 Trading Signals", className='mb-0 fw-semibold')),
+                dbc.CardBody(id='interpretation', className='py-2', style={'maxHeight': '260px', 'overflowY': 'auto'})
+            ], className='shadow-sm', style={'height': '310px', 'maxHeight': '310px'})
+        ], lg=4, md=12)
+    ], className='mb-3 g-3'),
+    
+    # Third Row: Forecast + Metrics
+    dbc.Row([
         dbc.Col([
             dbc.Card([
                 dbc.CardHeader(html.H6("🎯 ARIMA vs ARIMAX Forecast", className='mb-0 fw-semibold')),
@@ -703,14 +735,15 @@ app.layout = dbc.Container([
                     html.Div(id='metrics-table', className='mt-2', style={'maxHeight': '60px', 'overflowY': 'auto'})
                 ], className='p-2', style={'height': '260px', 'maxHeight': '260px', 'overflow': 'hidden'})
             ], className='shadow-sm', style={'height': '310px', 'maxHeight': '310px'})
-        ], lg=4, md=6),
+        ], lg=6, md=12),
         
+        # Combined Sentiment Summary
         dbc.Col([
             dbc.Card([
-                dbc.CardHeader(html.H6("🧠 Trading Signals", className='mb-0 fw-semibold')),
-                dbc.CardBody(id='interpretation', className='py-2', style={'maxHeight': '260px', 'overflowY': 'auto'})
+                dbc.CardHeader(html.H6("📊 Combined Sentiment Summary", className='mb-0 fw-semibold')),
+                dbc.CardBody(id='combined-sentiment-summary', className='py-2', style={'maxHeight': '260px', 'overflowY': 'auto'})
             ], className='shadow-sm', style={'height': '310px', 'maxHeight': '310px'})
-        ], lg=4, md=12)
+        ], lg=6, md=12)
     ], className='mb-3 g-3'),
     
     # Store and Intervals
@@ -990,6 +1023,330 @@ def update_interp(data):
         ], className='py-1 border-bottom'))
     
     return html.Div(alerts)
+
+
+# ============================================
+# NEWS SENTIMENT BREAKDOWN CALLBACK
+# ============================================
+
+@app.callback(Output('news-sentiment-stats', 'children'), Input('store', 'data'))
+def update_news_sentiment_stats(data):
+    """Display news sentiment breakdown with bullish/bearish/neutral counts."""
+    if not data:
+        return html.P("Loading...", className='text-muted small')
+    
+    try:
+        news_json = data.get('news', '{}')
+        if news_json and news_json != '{}':
+            df_news = pd.read_json(news_json)
+            
+            if not df_news.empty and 'sentiment_score' in df_news.columns:
+                # Count by sentiment label
+                bullish = (df_news['sentiment_label'] == 'Bullish').sum() if 'sentiment_label' in df_news.columns else 0
+                bearish = (df_news['sentiment_label'] == 'Bearish').sum() if 'sentiment_label' in df_news.columns else 0
+                neutral = (df_news['sentiment_label'] == 'Neutral').sum() if 'sentiment_label' in df_news.columns else 0
+                total = len(df_news)
+                avg_sentiment = df_news['sentiment_score'].mean()
+                
+                # Calculate percentages
+                bullish_pct = (bullish / total * 100) if total > 0 else 0
+                bearish_pct = (bearish / total * 100) if total > 0 else 0
+                neutral_pct = (neutral / total * 100) if total > 0 else 0
+                
+                # Overall sentiment label
+                overall_label = classify_sentiment(avg_sentiment)
+                overall_color = 'success' if overall_label == 'Bullish' else ('danger' if overall_label == 'Bearish' else 'warning')
+                
+                return html.Div([
+                    # Overall sentiment badge
+                    html.Div([
+                        dbc.Badge(f"{overall_label} ({avg_sentiment:+.3f})", color=overall_color, className='mb-2'),
+                        html.Span(f" • {total} articles", className='text-muted small ms-2')
+                    ]),
+                    # Sentiment bars
+                    html.Div([
+                        html.Div([
+                            html.Span("🟢 Bullish: ", className='small fw-semibold', style={'color': '#198754'}),
+                            html.Span(f"{bullish} ({bullish_pct:.0f}%)", className='small'),
+                            dbc.Progress(value=bullish_pct, color='success', style={'height': '6px'}, className='mt-1')
+                        ], className='mb-1'),
+                        html.Div([
+                            html.Span("🔴 Bearish: ", className='small fw-semibold', style={'color': '#dc3545'}),
+                            html.Span(f"{bearish} ({bearish_pct:.0f}%)", className='small'),
+                            dbc.Progress(value=bearish_pct, color='danger', style={'height': '6px'}, className='mt-1')
+                        ], className='mb-1'),
+                        html.Div([
+                            html.Span("🟡 Neutral: ", className='small fw-semibold', style={'color': '#ffc107'}),
+                            html.Span(f"{neutral} ({neutral_pct:.0f}%)", className='small'),
+                            dbc.Progress(value=neutral_pct, color='warning', style={'height': '6px'}, className='mt-1')
+                        ])
+                    ])
+                ])
+    except Exception as e:
+        print(f"[!] News sentiment stats error: {e}")
+    
+    return html.P("No news sentiment data", className='text-muted small')
+
+
+# ============================================
+# SOCIAL/TWITTER SENTIMENT BREAKDOWN CALLBACK
+# ============================================
+
+@app.callback(Output('social-sentiment-stats', 'children'), Input('store', 'data'))
+def update_social_sentiment_stats(data):
+    """Display social media sentiment breakdown with bullish/bearish/neutral counts."""
+    if not data:
+        return html.P("Loading...", className='text-muted small')
+    
+    try:
+        tweets_json = data.get('tweets', '{}')
+        if tweets_json and tweets_json != '{}':
+            df_tweets = pd.read_json(tweets_json)
+            
+            if not df_tweets.empty and 'sentiment_score' in df_tweets.columns:
+                # Count by sentiment label
+                bullish = (df_tweets['sentiment_label'] == 'Bullish').sum() if 'sentiment_label' in df_tweets.columns else 0
+                bearish = (df_tweets['sentiment_label'] == 'Bearish').sum() if 'sentiment_label' in df_tweets.columns else 0
+                neutral = (df_tweets['sentiment_label'] == 'Neutral').sum() if 'sentiment_label' in df_tweets.columns else 0
+                total = len(df_tweets)
+                avg_sentiment = df_tweets['sentiment_score'].mean()
+                
+                # Calculate percentages
+                bullish_pct = (bullish / total * 100) if total > 0 else 0
+                bearish_pct = (bearish / total * 100) if total > 0 else 0
+                neutral_pct = (neutral / total * 100) if total > 0 else 0
+                
+                # Get sources breakdown
+                sources = df_tweets['source'].value_counts().head(3).to_dict() if 'source' in df_tweets.columns else {}
+                source_text = ", ".join([f"{k}: {v}" for k, v in sources.items()])
+                
+                # Overall sentiment label
+                overall_label = classify_sentiment(avg_sentiment)
+                overall_color = 'success' if overall_label == 'Bullish' else ('danger' if overall_label == 'Bearish' else 'warning')
+                
+                return html.Div([
+                    # Overall sentiment badge
+                    html.Div([
+                        dbc.Badge(f"{overall_label} ({avg_sentiment:+.3f})", color=overall_color, className='mb-2'),
+                        html.Span(f" • {total} posts", className='text-muted small ms-2')
+                    ]),
+                    # Sources info
+                    html.Div([
+                        html.Small(f"📍 Sources: {source_text}", className='text-muted')
+                    ], className='mb-1') if source_text else None,
+                    # Sentiment bars
+                    html.Div([
+                        html.Div([
+                            html.Span("🟢 Bullish: ", className='small fw-semibold', style={'color': '#198754'}),
+                            html.Span(f"{bullish} ({bullish_pct:.0f}%)", className='small'),
+                            dbc.Progress(value=bullish_pct, color='success', style={'height': '6px'}, className='mt-1')
+                        ], className='mb-1'),
+                        html.Div([
+                            html.Span("🔴 Bearish: ", className='small fw-semibold', style={'color': '#dc3545'}),
+                            html.Span(f"{bearish} ({bearish_pct:.0f}%)", className='small'),
+                            dbc.Progress(value=bearish_pct, color='danger', style={'height': '6px'}, className='mt-1')
+                        ], className='mb-1'),
+                        html.Div([
+                            html.Span("🟡 Neutral: ", className='small fw-semibold', style={'color': '#ffc107'}),
+                            html.Span(f"{neutral} ({neutral_pct:.0f}%)", className='small'),
+                            dbc.Progress(value=neutral_pct, color='warning', style={'height': '6px'}, className='mt-1')
+                        ])
+                    ])
+                ])
+    except Exception as e:
+        print(f"[!] Social sentiment stats error: {e}")
+    
+    return html.P("No social media data", className='text-muted small')
+
+
+# ============================================
+# SOCIAL SENTIMENT CHART CALLBACK
+# ============================================
+
+@app.callback(Output('chart-social-sentiment', 'figure'), Input('store', 'data'))
+def update_social_sentiment_chart(data):
+    """Create a pie/donut chart showing social sentiment distribution."""
+    fig = go.Figure()
+    
+    if not data:
+        fig.add_annotation(text="No data", x=0.5, y=0.5, xref='paper', yref='paper', showarrow=False)
+        fig.update_layout(height=150, template='plotly_white', paper_bgcolor='#ffffff')
+        return fig
+    
+    try:
+        tweets_json = data.get('tweets', '{}')
+        if tweets_json and tweets_json != '{}':
+            df_tweets = pd.read_json(tweets_json)
+            
+            if not df_tweets.empty and 'sentiment_label' in df_tweets.columns:
+                # Count by sentiment
+                counts = df_tweets['sentiment_label'].value_counts()
+                
+                labels = []
+                values = []
+                colors = []
+                
+                for label in ['Bullish', 'Bearish', 'Neutral']:
+                    if label in counts.index:
+                        labels.append(label)
+                        values.append(counts[label])
+                        colors.append('#198754' if label == 'Bullish' else ('#dc3545' if label == 'Bearish' else '#ffc107'))
+                
+                if values:
+                    fig.add_trace(go.Pie(
+                        labels=labels,
+                        values=values,
+                        hole=0.5,
+                        marker_colors=colors,
+                        textinfo='percent',
+                        textfont_size=10,
+                        showlegend=True
+                    ))
+                    
+                    fig.update_layout(
+                        height=150,
+                        template='plotly_white',
+                        paper_bgcolor='#ffffff',
+                        margin=dict(l=10, r=10, t=10, b=10),
+                        legend=dict(orientation='h', y=-0.1, x=0.5, xanchor='center', font=dict(size=9)),
+                        font=dict(family='Inter, sans-serif', size=10)
+                    )
+                    return fig
+    except Exception as e:
+        print(f"[!] Social sentiment chart error: {e}")
+    
+    fig.add_annotation(text="No social data", x=0.5, y=0.5, xref='paper', yref='paper', showarrow=False)
+    fig.update_layout(height=150, template='plotly_white', paper_bgcolor='#ffffff')
+    return fig
+
+
+# ============================================
+# COMBINED SENTIMENT SUMMARY CALLBACK
+# ============================================
+
+@app.callback(Output('combined-sentiment-summary', 'children'), Input('store', 'data'))
+def update_combined_sentiment_summary(data):
+    """Display combined sentiment summary with interpretation."""
+    if not data:
+        return html.P("Loading...", className='text-muted small')
+    
+    try:
+        # Get news sentiment
+        news_sentiment = 0
+        news_bullish = news_bearish = news_neutral = 0
+        news_total = 0
+        
+        news_json = data.get('news', '{}')
+        if news_json and news_json != '{}':
+            df_news = pd.read_json(news_json)
+            if not df_news.empty and 'sentiment_score' in df_news.columns:
+                news_sentiment = df_news['sentiment_score'].mean()
+                news_total = len(df_news)
+                if 'sentiment_label' in df_news.columns:
+                    news_bullish = (df_news['sentiment_label'] == 'Bullish').sum()
+                    news_bearish = (df_news['sentiment_label'] == 'Bearish').sum()
+                    news_neutral = (df_news['sentiment_label'] == 'Neutral').sum()
+        
+        # Get social sentiment
+        social_sentiment = 0
+        social_bullish = social_bearish = social_neutral = 0
+        social_total = 0
+        
+        tweets_json = data.get('tweets', '{}')
+        if tweets_json and tweets_json != '{}':
+            df_tweets = pd.read_json(tweets_json)
+            if not df_tweets.empty and 'sentiment_score' in df_tweets.columns:
+                social_sentiment = df_tweets['sentiment_score'].mean()
+                social_total = len(df_tweets)
+                if 'sentiment_label' in df_tweets.columns:
+                    social_bullish = (df_tweets['sentiment_label'] == 'Bullish').sum()
+                    social_bearish = (df_tweets['sentiment_label'] == 'Bearish').sum()
+                    social_neutral = (df_tweets['sentiment_label'] == 'Neutral').sum()
+        
+        # Calculate fused sentiment (60% news, 40% social)
+        if news_total > 0 and social_total > 0:
+            fused_sentiment = news_sentiment * 0.6 + social_sentiment * 0.4
+        elif news_total > 0:
+            fused_sentiment = news_sentiment
+        elif social_total > 0:
+            fused_sentiment = social_sentiment
+        else:
+            return html.P("No sentiment data available", className='text-muted small')
+        
+        # Total counts
+        total_bullish = news_bullish + social_bullish
+        total_bearish = news_bearish + social_bearish
+        total_neutral = news_neutral + social_neutral
+        grand_total = news_total + social_total
+        
+        # Overall label
+        overall = classify_sentiment(fused_sentiment)
+        overall_color = 'success' if overall == 'Bullish' else ('danger' if overall == 'Bearish' else 'warning')
+        
+        # Generate interpretation text
+        if overall == 'Bullish':
+            interpretation = f"Market sentiment is BULLISH. Out of {grand_total} analyzed posts, {total_bullish} ({total_bullish/grand_total*100:.0f}%) express positive outlook on Bitcoin. News sentiment: {news_sentiment:+.3f}, Social sentiment: {social_sentiment:+.3f}."
+        elif overall == 'Bearish':
+            interpretation = f"Market sentiment is BEARISH. Out of {grand_total} analyzed posts, {total_bearish} ({total_bearish/grand_total*100:.0f}%) express negative outlook on Bitcoin. News sentiment: {news_sentiment:+.3f}, Social sentiment: {social_sentiment:+.3f}."
+        else:
+            interpretation = f"Market sentiment is NEUTRAL. Mixed signals from {grand_total} analyzed posts. News sentiment: {news_sentiment:+.3f}, Social sentiment: {social_sentiment:+.3f}. Consider other indicators."
+        
+        return html.Div([
+            # Main sentiment card
+            dbc.Alert([
+                html.H5([
+                    "Overall: ",
+                    dbc.Badge(overall.upper(), color=overall_color, className='ms-2')
+                ], className='mb-2'),
+                html.P([
+                    html.Strong(f"Fused Score: {fused_sentiment:+.4f}"),
+                    html.Span(" (60% News + 40% Social)", className='text-muted small ms-2')
+                ], className='mb-2'),
+            ], color=overall_color, className='mb-2 py-2'),
+            
+            # Breakdown table
+            html.Table([
+                html.Thead([
+                    html.Tr([
+                        html.Th("Source", className='small'),
+                        html.Th("🟢 Bull", className='small text-center'),
+                        html.Th("🔴 Bear", className='small text-center'),
+                        html.Th("🟡 Neut", className='small text-center'),
+                        html.Th("Score", className='small text-center')
+                    ])
+                ]),
+                html.Tbody([
+                    html.Tr([
+                        html.Td("📰 News", className='small'),
+                        html.Td(str(news_bullish), className='small text-center text-success'),
+                        html.Td(str(news_bearish), className='small text-center text-danger'),
+                        html.Td(str(news_neutral), className='small text-center text-warning'),
+                        html.Td(f"{news_sentiment:+.3f}", className='small text-center')
+                    ]),
+                    html.Tr([
+                        html.Td("🐦 Social", className='small'),
+                        html.Td(str(social_bullish), className='small text-center text-success'),
+                        html.Td(str(social_bearish), className='small text-center text-danger'),
+                        html.Td(str(social_neutral), className='small text-center text-warning'),
+                        html.Td(f"{social_sentiment:+.3f}", className='small text-center')
+                    ]),
+                    html.Tr([
+                        html.Td(html.Strong("Total"), className='small'),
+                        html.Td(html.Strong(str(total_bullish)), className='small text-center text-success'),
+                        html.Td(html.Strong(str(total_bearish)), className='small text-center text-danger'),
+                        html.Td(html.Strong(str(total_neutral)), className='small text-center text-warning'),
+                        html.Td(html.Strong(f"{fused_sentiment:+.3f}"), className='small text-center')
+                    ])
+                ])
+            ], className='table table-sm table-bordered mb-2', style={'fontSize': '0.75rem'}),
+            
+            # Interpretation text
+            html.P(interpretation, className='small text-muted mb-0', style={'lineHeight': '1.4'})
+        ])
+        
+    except Exception as e:
+        print(f"[!] Combined sentiment summary error: {e}")
+        return html.P(f"Error: {str(e)}", className='text-muted small')
 
 
 # ============================================
