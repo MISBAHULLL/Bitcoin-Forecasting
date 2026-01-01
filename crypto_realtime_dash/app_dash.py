@@ -462,8 +462,11 @@ def make_forecast_chart(results):
                     line=dict(color='#212529', width=2)
                 ))
             
+            # Dynamic label for ARIMAX
+            label = f'{name} (+Sentiment)' if name == 'ARIMAX' else name
+            
             fig.add_trace(go.Scatter(
-                x=list(range(n)), y=predicted[:n], name=f'{name}',
+                x=list(range(n)), y=predicted[:n], name=label,
                 line=dict(width=2, dash='dash', color=colors.get(name, '#2196f3'))
             ))
     
@@ -691,8 +694,8 @@ app.layout = dbc.Container([
                         config={'displayModeBar': False, 'staticPlot': False},
                         style={'height': '150px', 'maxHeight': '150px'}
                     )
-                ], className='p-2', style={'height': '260px', 'maxHeight': '260px', 'overflow': 'hidden'})
-            ], className='shadow-sm', style={'height': '310px', 'maxHeight': '310px'})
+                ], className='p-2', style={'height': '310px', 'maxHeight': '310px', 'overflow': 'hidden'})
+            ], className='shadow-sm', style={'height': '360px', 'maxHeight': '360px'})
         ], lg=4, md=6),
         
         # Social/Twitter Sentiment Panel with Breakdown
@@ -708,16 +711,16 @@ app.layout = dbc.Container([
                         config={'displayModeBar': False, 'staticPlot': False},
                         style={'height': '150px', 'maxHeight': '150px'}
                     )
-                ], className='p-2', style={'height': '260px', 'maxHeight': '260px', 'overflow': 'hidden'})
-            ], className='shadow-sm', style={'height': '310px', 'maxHeight': '310px'})
+                ], className='p-2', style={'height': '310px', 'maxHeight': '310px', 'overflow': 'hidden'})
+            ], className='shadow-sm', style={'height': '360px', 'maxHeight': '360px'})
         ], lg=4, md=6),
         
         # Trading Signals Panel
         dbc.Col([
             dbc.Card([
                 dbc.CardHeader(html.H6("🧠 Trading Signals", className='mb-0 fw-semibold')),
-                dbc.CardBody(id='interpretation', className='py-2', style={'maxHeight': '260px', 'overflowY': 'auto'})
-            ], className='shadow-sm', style={'height': '310px', 'maxHeight': '310px'})
+                dbc.CardBody(id='interpretation', className='py-2', style={'maxHeight': '310px', 'overflowY': 'auto'})
+            ], className='shadow-sm', style={'height': '360px', 'maxHeight': '360px'})
         ], lg=4, md=12)
     ], className='mb-3 g-3'),
     
@@ -921,6 +924,47 @@ def update_news(data, news_intervals):
     return html.Div([news_card(n) for n in news])
 
 
+def create_feature_importance_badge(results):
+    """Create badges for significant ARIMAX features."""
+    if 'ARIMAX' not in results or 'feature_importance' not in results['ARIMAX']:
+        return None
+        
+    importance = results['ARIMAX']['feature_importance']
+    if importance.empty:
+        return None
+        
+    # Get significant or top features
+    features = []
+    if 'significant' in importance.columns:
+        sig = importance[importance['significant'] == True]
+        if not sig.empty:
+            features = sig['feature'].tolist()
+    
+    if not features:
+        # Fallback to top 3 by absolute coefficient
+        importance['abs_coeff'] = importance['coefficient'].abs()
+        features = importance.sort_values('abs_coeff', ascending=False).head(3)['feature'].tolist()
+    
+    # Clean names
+    clean_features = []
+    for f in features:
+        if 'sentiment' in f:
+            clean_features.append('Sentiment')
+        elif 'rsi' in f:
+            clean_features.append('RSI')
+        elif 'macd' in f:
+            clean_features.append('MACD')
+        elif 'sma' in f:
+            clean_features.append('SMA')
+        else:
+            clean_features.append(f.capitalize())
+            
+    return html.Div([
+        html.Span("Dynamic Drivers: ", className='small text-muted fw-semibold'),
+        *[dbc.Badge(f, color='info', className='me-1', style={'fontSize': '0.65rem'}) for f in set(clean_features)]
+    ], className='mt-2')
+
+
 @app.callback(
     Output('chart-forecast', 'figure'),
     Output('metrics-table', 'children'),
@@ -967,9 +1011,17 @@ def update_forecast(data, p, d, q):
                 html.Td(f"{r['MAPE']:.2f}%")
             ]) for _, r in comparison.iterrows()
         ])
-    ], size='sm', striped=True, className='small') if not comparison.empty else ""
+    ], size='sm', striped=True, className='small mb-0') if not comparison.empty else ""
     
-    return make_forecast_chart(results), table
+    # Add feature importance info
+    features_info = create_feature_importance_badge(results)
+    
+    content = html.Div([
+        table,
+        features_info if features_info else None
+    ])
+    
+    return make_forecast_chart(results), content
 
 
 @app.callback(Output('interpretation', 'children'), Input('store', 'data'))

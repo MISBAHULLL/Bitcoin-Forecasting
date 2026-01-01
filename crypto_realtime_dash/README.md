@@ -80,6 +80,9 @@ crypto_realtime_dash/
 | ARIMA | Univariate baseline (close price only) |
 | ARIMAX | With exogenous: sentiment, RSI, SMA, MACD, volume |
 
+![Dashboard](Dashboard1.png)
+![Dashboard](Dashboard2.png)
+
 ## License
 
 Academic Research Use - SINTA 1 Ready
