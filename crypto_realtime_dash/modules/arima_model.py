@@ -16,30 +16,17 @@ warnings.filterwarnings('ignore')
 
 
 class ARIMAModel:
-    """ARIMA Baseline Model for univariate time series forecasting."""
+    """ARIMA model for univariate forecasting."""
     
     def __init__(self, order: Tuple[int, int, int] = (5, 1, 0)):
-        """
-        Initialize ARIMA model.
-        
-        Args:
-            order: (p, d, q) order tuple
-        """
+        """Initialize with (p, d, q) order."""
         self.order = order
         self.model = None
         self.fitted = None
         self.train_data = None
     
     def fit(self, data: pd.Series) -> 'ARIMAModel':
-        """
-        Fit ARIMA model to data.
-        
-        Args:
-            data: Time series data (close prices)
-        
-        Returns:
-            Self for method chaining
-        """
+        """Fit model to data (close prices)."""
         self.train_data = data.values
         
         try:
@@ -56,15 +43,7 @@ class ARIMAModel:
         return self
     
     def predict(self, steps: int) -> np.ndarray:
-        """
-        Generate forecasts.
-        
-        Args:
-            steps: Number of steps to forecast
-        
-        Returns:
-            Array of predictions
-        """
+        """Forecast n steps ahead."""
         if self.fitted is None:
             raise ValueError("Model not fitted")
         
@@ -84,15 +63,10 @@ class ARIMAModel:
 
 
 class ARIMAXModel:
-    """ARIMAX Model with exogenous variables."""
+    """ARIMAX with exogenous variables."""
     
     def __init__(self, order: Tuple[int, int, int] = (5, 1, 0)):
-        """
-        Initialize ARIMAX model.
-        
-        Args:
-            order: (p, d, q) order tuple
-        """
+        """Initialize with (p, d, q) order."""
         self.order = order
         self.model = None
         self.fitted = None
@@ -101,16 +75,7 @@ class ARIMAXModel:
         self.exog_columns = []
     
     def fit(self, data: pd.Series, exog: pd.DataFrame) -> 'ARIMAXModel':
-        """
-        Fit ARIMAX model with exogenous variables.
-        
-        Args:
-            data: Time series data (close prices)
-            exog: DataFrame with exogenous variables
-        
-        Returns:
-            Self for method chaining
-        """
+        """Fit model with exogenous variables."""
         self.train_data = data.values
         self.exog_train = exog.values
         self.exog_columns = exog.columns.tolist()
@@ -136,16 +101,7 @@ class ARIMAXModel:
         return self
     
     def predict(self, steps: int, exog_future: pd.DataFrame) -> np.ndarray:
-        """
-        Generate forecasts with future exogenous values.
-        
-        Args:
-            steps: Number of steps to forecast
-            exog_future: DataFrame with future exogenous values
-        
-        Returns:
-            Array of predictions
-        """
+        """Forecast with future exogenous values."""
         if self.fitted is None:
             raise ValueError("Model not fitted")
         
@@ -181,17 +137,7 @@ class ARIMAXModel:
 
 
 def auto_select_order(data: pd.Series, max_p: int = 5, max_q: int = 5) -> Tuple[int, int, int]:
-    """
-    Auto-select ARIMA order using AIC.
-    
-    Args:
-        data: Time series data
-        max_p: Maximum AR order
-        max_q: Maximum MA order
-    
-    Returns:
-        Best (p, d, q) order
-    """
+    """Auto-select best (p, d, q) using AIC."""
     # Determine d using ADF test
     adf_result = adfuller(data.dropna())
     d = 0 if adf_result[1] < 0.05 else 1
@@ -235,18 +181,7 @@ def train_arima(
     test_size: float = 0.2,
     auto_order: bool = False
 ) -> Dict:
-    """
-    Train ARIMA baseline model.
-    
-    Args:
-        df: DataFrame with 'close' column
-        order: ARIMA order, auto-selected if None
-        test_size: Fraction for testing
-        auto_order: Whether to auto-select order
-    
-    Returns:
-        Dictionary with model results
-    """
+    """Train ARIMA and return predictions."""
     data = df['close'].copy()
     
     # Train/test split
@@ -285,19 +220,7 @@ def train_arimax(
     test_size: float = 0.2,
     auto_order: bool = False
 ) -> Dict:
-    """
-    Train ARIMAX model with exogenous variables.
-    
-    Args:
-        df: DataFrame with 'close' and exog columns
-        exog_columns: List of exogenous column names
-        order: ARIMA order
-        test_size: Fraction for testing
-        auto_order: Whether to auto-select order
-    
-    Returns:
-        Dictionary with model results
-    """
+    """Train ARIMAX with exog variables."""
     # Default exogenous columns
     if exog_columns is None:
         exog_columns = ['fused_sentiment', 'rsi_14', 'sma_14', 'macd', 'volume']
@@ -354,17 +277,7 @@ def forecast_multi_horizon(
     horizons: List[int] = [1, 3, 7],
     exog_future: pd.DataFrame = None
 ) -> Dict[int, np.ndarray]:
-    """
-    Generate forecasts for multiple horizons.
-    
-    Args:
-        model: Fitted ARIMA or ARIMAX model
-        horizons: List of forecast horizons
-        exog_future: Future exogenous values (for ARIMAX)
-    
-    Returns:
-        Dictionary mapping horizon to predictions
-    """
+    """Forecast for multiple horizons."""
     forecasts = {}
     
     for h in horizons:

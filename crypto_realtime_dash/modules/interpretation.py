@@ -9,9 +9,7 @@ from typing import Dict, List
 from datetime import datetime
 
 
-# ============================================
-# SIGNAL MATRIX - COMBINATION RULES
-# ============================================
+# Signal Matrix Rules
 
 SIGNAL_MATRIX = {
     # Format: (sentiment, rsi_zone, macd_trend, change_24h) -> signal, confidence, reason
@@ -75,7 +73,7 @@ def classify_24h_change(change: float) -> str:
 
 
 class InterpretationEngine:
-    """Advanced rule-based interpretation engine for market insights."""
+    """Rule-based market signal engine."""
     
     def __init__(self):
         self.insights = []
@@ -270,17 +268,7 @@ class InterpretationEngine:
 
 
 def generate_interpretation(df: pd.DataFrame, model_metrics: Dict = None, change_24h: float = 0) -> Dict:
-    """
-    Generate interpretation from data.
-    
-    Args:
-        df: DataFrame with indicators
-        model_metrics: Optional model comparison metrics
-        change_24h: 24 hour price change percentage
-    
-    Returns:
-        Dictionary with interpretations
-    """
+    """Generate trading insights from indicators."""
     if df.empty:
         return {'summary': 'Insufficient data for interpretation'}
     

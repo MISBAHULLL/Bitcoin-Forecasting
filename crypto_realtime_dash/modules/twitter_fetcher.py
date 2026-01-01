@@ -60,16 +60,7 @@ def clean_tweet(text: str) -> str:
 
 
 def fetch_from_nitter(query: str = "bitcoin", limit: int = 50) -> List[Dict]:
-    """
-    Fetch tweets using Nitter (Twitter alternative that doesn't require API).
-    
-    Args:
-        query: Search query
-        limit: Maximum number of tweets
-    
-    Returns:
-        List of tweet dictionaries
-    """
+    """Fetch tweets via Nitter (no API needed)."""
     tweets = []
     
     headers = {
@@ -128,16 +119,7 @@ def fetch_from_nitter(query: str = "bitcoin", limit: int = 50) -> List[Dict]:
 
 
 def fetch_reddit_posts(subreddit: str = "bitcoin", limit: int = 50) -> List[Dict]:
-    """
-    Fetch posts from Reddit (no API key needed for public data).
-    
-    Args:
-        subreddit: Subreddit name
-        limit: Maximum number of posts
-    
-    Returns:
-        List of post dictionaries formatted like tweets
-    """
+    """Fetch Reddit posts (no API key needed)."""
     posts = []
     
     headers = {
@@ -186,12 +168,7 @@ def fetch_reddit_posts(subreddit: str = "bitcoin", limit: int = 50) -> List[Dict
 
 
 def fetch_cryptocompare_social() -> List[Dict]:
-    """
-    Fetch social data from CryptoCompare.
-    
-    Returns:
-        List of social posts/mentions
-    """
+    """Get social stats from CryptoCompare."""
     posts = []
     
     try:
@@ -227,16 +204,7 @@ def fetch_cryptocompare_social() -> List[Dict]:
 
 
 def get_tweets(limit: int = 100, days_back: int = 7) -> pd.DataFrame:
-    """
-    Get social media posts from multiple sources (NO sample data).
-    
-    Args:
-        limit: Maximum number of posts
-        days_back: Days to look back (for filtering)
-    
-    Returns:
-        DataFrame with social posts
-    """
+    """Get social posts from Reddit and Nitter."""
     all_posts = []
     
     print("[*] Fetching real social media data...")
@@ -274,15 +242,7 @@ def get_tweets(limit: int = 100, days_back: int = 7) -> pd.DataFrame:
 
 
 def aggregate_daily_tweets(df: pd.DataFrame) -> pd.DataFrame:
-    """
-    Aggregate tweet sentiment by day.
-    
-    Args:
-        df: DataFrame with tweet data including sentiment
-    
-    Returns:
-        DataFrame with daily aggregates
-    """
+    """Aggregate tweet sentiment by day."""
     if df.empty or 'sentiment_score' not in df.columns:
         return pd.DataFrame()
     

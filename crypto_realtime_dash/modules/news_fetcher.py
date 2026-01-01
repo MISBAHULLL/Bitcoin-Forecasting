@@ -81,16 +81,7 @@ def parse_date(date_str: str) -> datetime:
 
 
 def fetch_rss_feed(url: str, source: str) -> List[Dict]:
-    """
-    Fetch and parse RSS feed.
-    
-    Args:
-        url: RSS feed URL
-        source: Source name
-    
-    Returns:
-        List of article dictionaries
-    """
+    """Fetch and parse RSS feed for Bitcoin news."""
     articles = []
     
     try:
@@ -138,15 +129,7 @@ def fetch_rss_feed(url: str, source: str) -> List[Dict]:
 
 
 def fetch_cryptocompare_news(limit: int = 50) -> List[Dict]:
-    """
-    Fetch news from CryptoCompare API (free, no API key required).
-    
-    Args:
-        limit: Number of articles to fetch
-    
-    Returns:
-        List of article dictionaries
-    """
+    """Get news from CryptoCompare API (free)."""
     articles = []
     
     try:
@@ -194,10 +177,7 @@ def fetch_cryptocompare_news(limit: int = 50) -> List[Dict]:
 
 
 def fetch_lunarcrush_news() -> List[Dict]:
-    """
-    Fetch social data from LunarCrush (requires free API key).
-    Note: This is a placeholder - you need to register at lunarcrush.com for an API key.
-    """
+    """Get LunarCrush data (requires API key)."""
     # LunarCrush requires API key, this is a placeholder
     # Register at https://lunarcrush.com/developers for free API access
     print("[*] LunarCrush requires API key - skipping")
@@ -241,16 +221,7 @@ def fetch_all_rss_sources() -> List[Dict]:
 
 
 def get_all_news(use_sample_fallback: bool = False) -> pd.DataFrame:
-    """
-    Fetch news from all sources.
-    
-    Args:
-        use_sample_fallback: If True, use sample data when APIs fail.
-                            Set to False to ONLY use real data.
-    
-    Returns:
-        DataFrame with all news articles
-    """
+    """Fetch news from all sources."""
     all_articles = []
     
     print("[*] Fetching real news data from multiple sources...")

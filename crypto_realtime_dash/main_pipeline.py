@@ -32,17 +32,7 @@ from modules.interpretation import generate_interpretation
 
 
 def run_pipeline(interval: str = '1h', limit: int = 500, test_size: float = 0.2):
-    """
-    Run the complete ETL -> Feature Engineering -> Forecasting pipeline.
-    
-    Args:
-        interval: OHLCV interval
-        limit: Number of candles to fetch
-        test_size: Fraction for model testing
-    
-    Returns:
-        Dictionary with all results
-    """
+    """Run ETL -> Features -> Forecasting pipeline."""
     print("=" * 70)
     print("  BITCOIN SENTIMENT FORECASTING PIPELINE")
     print("  SINTA 1 Research System")
@@ -52,9 +42,7 @@ def run_pipeline(interval: str = '1h', limit: int = 500, test_size: float = 0.2)
     
     results = {}
     
-    # ==============================================
-    # PHASE 1: DATA ACQUISITION
-    # ==============================================
+    # --- Phase 1: Data Acquisition ---
     print("\n" + "=" * 70)
     print("  PHASE 1: DATA ACQUISITION")
     print("=" * 70)
@@ -106,9 +94,7 @@ def run_pipeline(interval: str = '1h', limit: int = 500, test_size: float = 0.2)
     
     results['current_price'] = current_price
     
-    # ==============================================
-    # PHASE 2: FEATURE ENGINEERING
-    # ==============================================
+    # --- Phase 2: Feature Engineering ---
     print("\n" + "=" * 70)
     print("  PHASE 2: FEATURE ENGINEERING")
     print("=" * 70)
@@ -140,9 +126,7 @@ def run_pipeline(interval: str = '1h', limit: int = 500, test_size: float = 0.2)
     
     results['sentiment_data'] = df_sentiment
     
-    # ==============================================
-    # PHASE 3: DATA MERGING
-    # ==============================================
+    # --- Phase 3: Data Merging ---
     print("\n" + "=" * 70)
     print("  PHASE 3: DATA MERGING")
     print("=" * 70)
@@ -194,9 +178,7 @@ def run_pipeline(interval: str = '1h', limit: int = 500, test_size: float = 0.2)
     
     results['merged_data'] = df_merged
     
-    # ==============================================
-    # PHASE 4: ARIMA/ARIMAX FORECASTING
-    # ==============================================
+    # --- Phase 4: ARIMA/ARIMAX Forecasting ---
     print("\n" + "=" * 70)
     print("  PHASE 4: ARIMA/ARIMAX FORECASTING")
     print("=" * 70)
@@ -222,9 +204,7 @@ def run_pipeline(interval: str = '1h', limit: int = 500, test_size: float = 0.2)
     
     results['model_results'] = model_results
     
-    # ==============================================
-    # PHASE 5: EVALUATION
-    # ==============================================
+    # --- Phase 5: Evaluation ---
     print("\n" + "=" * 70)
     print("  PHASE 5: EVALUATION")
     print("=" * 70)
@@ -239,9 +219,7 @@ def run_pipeline(interval: str = '1h', limit: int = 500, test_size: float = 0.2)
         
         results['comparison'] = comparison
     
-    # ==============================================
-    # PHASE 6: INTERPRETATION
-    # ==============================================
+    # --- Phase 6: Interpretation ---
     print("\n" + "=" * 70)
     print("  PHASE 6: INTERPRETATION")
     print("=" * 70)
@@ -257,9 +235,7 @@ def run_pipeline(interval: str = '1h', limit: int = 500, test_size: float = 0.2)
     
     results['interpretation'] = interpretation
     
-    # ==============================================
-    # COMPLETE
-    # ==============================================
+    # --- Complete ---
     print("\n" + "=" * 70)
     print("  PIPELINE COMPLETE")
     print("=" * 70)

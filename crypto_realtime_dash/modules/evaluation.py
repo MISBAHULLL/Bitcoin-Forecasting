@@ -9,16 +9,7 @@ from typing import Dict, List, Optional
 
 
 def calculate_rmse(actual: np.ndarray, predicted: np.ndarray) -> float:
-    """
-    Calculate Root Mean Square Error.
-    
-    Args:
-        actual: Actual values
-        predicted: Predicted values
-    
-    Returns:
-        RMSE value
-    """
+    """Calculate RMSE."""
     if len(actual) == 0 or len(predicted) == 0:
         return np.nan
     
@@ -29,16 +20,7 @@ def calculate_rmse(actual: np.ndarray, predicted: np.ndarray) -> float:
 
 
 def calculate_mae(actual: np.ndarray, predicted: np.ndarray) -> float:
-    """
-    Calculate Mean Absolute Error.
-    
-    Args:
-        actual: Actual values
-        predicted: Predicted values
-    
-    Returns:
-        MAE value
-    """
+    """Calculate MAE."""
     if len(actual) == 0 or len(predicted) == 0:
         return np.nan
     
@@ -49,16 +31,7 @@ def calculate_mae(actual: np.ndarray, predicted: np.ndarray) -> float:
 
 
 def calculate_mape(actual: np.ndarray, predicted: np.ndarray) -> float:
-    """
-    Calculate Mean Absolute Percentage Error.
-    
-    Args:
-        actual: Actual values
-        predicted: Predicted values
-    
-    Returns:
-        MAPE value (as percentage)
-    """
+    """Calculate MAPE (%)."""
     if len(actual) == 0 or len(predicted) == 0:
         return np.nan
     
@@ -74,17 +47,7 @@ def calculate_mape(actual: np.ndarray, predicted: np.ndarray) -> float:
 
 
 def calculate_directional_accuracy(actual: np.ndarray, predicted: np.ndarray) -> float:
-    """
-    Calculate Directional Accuracy.
-    Measures how often the model correctly predicts the direction of price movement.
-    
-    Args:
-        actual: Actual values
-        predicted: Predicted values
-    
-    Returns:
-        DA value (as percentage)
-    """
+    """Calculate DA - how often direction is correct (%)."""
     if len(actual) < 2 or len(predicted) < 2:
         return np.nan
     
@@ -103,16 +66,7 @@ def calculate_directional_accuracy(actual: np.ndarray, predicted: np.ndarray) ->
 
 
 def calculate_smape(actual: np.ndarray, predicted: np.ndarray) -> float:
-    """
-    Calculate Symmetric Mean Absolute Percentage Error.
-    
-    Args:
-        actual: Actual values
-        predicted: Predicted values
-    
-    Returns:
-        SMAPE value (as percentage)
-    """
+    """Calculate SMAPE (%)."""
     if len(actual) == 0 or len(predicted) == 0:
         return np.nan
     
@@ -129,16 +83,7 @@ def calculate_smape(actual: np.ndarray, predicted: np.ndarray) -> float:
 
 
 def calculate_all_metrics(actual: np.ndarray, predicted: np.ndarray) -> Dict[str, float]:
-    """
-    Calculate all evaluation metrics.
-    
-    Args:
-        actual: Actual values
-        predicted: Predicted values
-    
-    Returns:
-        Dictionary with all metrics
-    """
+    """Calculate all evaluation metrics."""
     return {
         'RMSE': calculate_rmse(actual, predicted),
         'MAE': calculate_mae(actual, predicted),
@@ -149,15 +94,7 @@ def calculate_all_metrics(actual: np.ndarray, predicted: np.ndarray) -> Dict[str
 
 
 def compare_models(model_results: Dict[str, Dict]) -> pd.DataFrame:
-    """
-    Compare multiple model results.
-    
-    Args:
-        model_results: Dictionary mapping model name to result dict
-    
-    Returns:
-        DataFrame with comparison
-    """
+    """Compare models by metrics."""
     comparisons = []
     
     for model_name, result in model_results.items():
@@ -200,15 +137,7 @@ def compare_models(model_results: Dict[str, Dict]) -> pd.DataFrame:
 
 
 def generate_evaluation_report(model_results: Dict[str, Dict]) -> str:
-    """
-    Generate text evaluation report.
-    
-    Args:
-        model_results: Dictionary with model results
-    
-    Returns:
-        Formatted report string
-    """
+    """Generate text report."""
     comparison = compare_models(model_results)
     
     if comparison.empty:

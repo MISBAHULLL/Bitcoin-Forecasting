@@ -66,17 +66,7 @@ def is_binance_available() -> bool:
 
 
 def fetch_binance_klines(symbol: str = 'BTCUSDT', interval: str = '1h', limit: int = 500) -> pd.DataFrame:
-    """
-    Fetch OHLCV data from Binance API.
-    
-    Args:
-        symbol: Trading pair (default BTCUSDT)
-        interval: Timeframe (1m, 5m, 15m, 30m, 1h, 4h, 1d)
-        limit: Number of candles (max 1000)
-    
-    Returns:
-        DataFrame with OHLCV data
-    """
+    """Fetch OHLCV from Binance API."""
     # Skip if Binance was recently unavailable
     if not is_binance_available():
         print("[*] Skipping Binance (unavailable), using fallback...")
@@ -134,15 +124,7 @@ def fetch_binance_klines(symbol: str = 'BTCUSDT', interval: str = '1h', limit: i
 
 
 def fetch_coingecko_ohlc(days: int = 30) -> pd.DataFrame:
-    """
-    Fetch OHLC data from CoinGecko as fallback.
-    
-    Args:
-        days: Number of days (1, 7, 14, 30, 90, 180, 365)
-    
-    Returns:
-        DataFrame with OHLCV data
-    """
+    """Fetch OHLC from CoinGecko (fallback)."""
     try:
         url = f"{COINGECKO_API}/coins/bitcoin/ohlc"
         params = {'vs_currency': 'usd', 'days': min(days, 365)}
@@ -168,13 +150,7 @@ def fetch_coingecko_ohlc(days: int = 30) -> pd.DataFrame:
 
 
 def fetch_current_price(symbol: str = 'BTCUSDT') -> dict:
-    """
-    Fetch current price with smart fallback.
-    CoinGecko is tried first if Binance is known to be unavailable.
-    
-    Returns:
-        Dictionary with price info
-    """
+    """Get current BTC price with fallback."""
     result = None
     
     # Try Binance first only if available
@@ -245,16 +221,7 @@ def fetch_current_price(symbol: str = 'BTCUSDT') -> dict:
 
 
 def generate_sample_ohlcv(limit: int = 500, interval: str = '1h') -> pd.DataFrame:
-    """
-    Generate realistic sample OHLCV data when APIs fail.
-    
-    Args:
-        limit: Number of candles
-        interval: Timeframe
-    
-    Returns:
-        DataFrame with sample data
-    """
+    """Generate sample OHLCV when APIs fail."""
     print("[*] Generating sample OHLCV data...")
     
     np.random.seed(int(time.time()) % 1000)
@@ -298,16 +265,7 @@ def generate_sample_ohlcv(limit: int = 500, interval: str = '1h') -> pd.DataFram
 
 
 def get_ohlcv(interval: str = '1h', limit: int = 500) -> pd.DataFrame:
-    """
-    Get OHLCV data with fallback.
-    
-    Args:
-        interval: Timeframe
-        limit: Number of candles
-    
-    Returns:
-        DataFrame with OHLCV data
-    """
+    """Get OHLCV with API fallbacks."""
     # Try Binance first
     df = fetch_binance_klines(interval=interval, limit=limit)
     

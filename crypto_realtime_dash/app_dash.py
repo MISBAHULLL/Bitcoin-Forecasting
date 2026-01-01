@@ -67,16 +67,14 @@ THEME = {
 }
 
 
-# ============================================
-# DATA LOADING WITH DYNAMIC UPDATES
-# ============================================
+# --- Data Loading ---
 
 _data_cache = {}
 _cache_time = {}
 CACHE_DURATION = 10  # Reduced for more dynamic updates
 
 def generate_sample_data(n=200, freq='h'):
-    """Generate sample OHLCV data."""
+    """Generate sample OHLCV data if API fails."""
     np.random.seed(int(time.time()) % 1000)  # Variable seed for different data
     
     # Map interval to frequency
@@ -101,7 +99,7 @@ def generate_sample_data(n=200, freq='h'):
 
 
 def compute_real_sentiment(df_news, df_tweets):
-    """Compute real fused sentiment from news and tweets."""
+    """Fuse news (60%) and tweets (40%) sentiment."""
     sentiments = []
     
     # Get news sentiment
@@ -120,10 +118,7 @@ def compute_real_sentiment(df_news, df_tweets):
 
 
 def compute_time_varying_sentiment(df_price, df_news, df_tweets):
-    """
-    Compute time-varying sentiment that changes over the price data timeline.
-    This creates a dynamic sentiment chart instead of a flat line.
-    """
+    """Compute dynamic sentiment over price timeline."""
     n = len(df_price)
     if n == 0:
         return np.array([])
@@ -171,7 +166,7 @@ def compute_time_varying_sentiment(df_price, df_news, df_tweets):
 
 
 def load_data(interval='1h', limit=200, force_refresh=False):
-    """Load data with dynamic caching based on timeframe."""
+    """Load price, news, and social data with caching."""
     global _data_cache, _cache_time
     
     cache_key = f"{interval}_{limit}"
@@ -236,12 +231,10 @@ def load_data(interval='1h', limit=200, force_refresh=False):
     return result
 
 
-# ============================================
-# CHARTS - WHITE THEME
-# ============================================
+# --- Charts ---
 
 def make_price_chart(df):
-    """Create candlestick chart with Volume, RSI, and MACD - White theme."""
+    """Create candlestick chart with indicators."""
     if df.empty:
         fig = go.Figure()
         fig.add_annotation(text="No data available", x=0.5, y=0.5, xref='paper', yref='paper', showarrow=False)
@@ -355,7 +348,7 @@ def make_price_chart(df):
 
 
 def make_sentiment_chart(df):
-    """Create compact sentiment chart - White theme with fixed dimensions."""
+    """Create sentiment timeline chart."""
     fig = go.Figure()
     
     # Validate data
@@ -431,7 +424,7 @@ def make_sentiment_chart(df):
 
 
 def make_forecast_chart(results):
-    """Create forecast comparison chart - White theme with fixed dimensions."""
+    """Create ARIMA vs ARIMAX comparison chart."""
     fig = go.Figure()
     
     if not results:
@@ -496,12 +489,10 @@ def make_forecast_chart(results):
     return fig
 
 
-# ============================================
-# UI COMPONENTS
-# ============================================
+# --- UI Components ---
 
 def metric_card(title, value, subtitle='', color='primary', icon=''):
-    """Metric card with white theme."""
+    """Create a metric display card."""
     color_map = {
         'primary': THEME['primary'],
         'success': THEME['success'],
@@ -524,7 +515,7 @@ def metric_card(title, value, subtitle='', color='primary', icon=''):
 
 
 def format_time_ago(timestamp):
-    """Format time ago dynamically: minutes, hours, or days."""
+    """Format timestamp to relative time (e.g. '5m ago')."""
     if timestamp is None:
         return "Unknown"
     
@@ -591,9 +582,7 @@ def event_card(event):
     ], className='border-bottom py-2')
 
 
-# ============================================
-# LAYOUT - STABLE BOOTSTRAP GRID
-# ============================================
+# --- Layout ---
 
 app.layout = dbc.Container([
     # Header
@@ -764,9 +753,7 @@ app.layout = dbc.Container([
 ], fluid=True, className='py-3', style={'backgroundColor': '#f8f9fa', 'minHeight': '100vh', 'fontFamily': 'Inter, sans-serif'})
 
 
-# ============================================
-# CALLBACKS
-# ============================================
+# --- Callbacks ---
 
 @app.callback(Output('interval', 'disabled'), Input('auto-refresh', 'value'))
 def toggle_refresh(v):
@@ -782,7 +769,7 @@ def toggle_refresh(v):
     Input('limit', 'value')       # Changed to Input for dynamic updates
 )
 def update_data(n, intervals, tf, limit):
-    """Main callback - triggers on timeframe change, limit change, refresh, or interval."""
+    """Main data refresh callback."""
     # Force refresh if timeframe or limit changed
     from dash import ctx
     triggered = ctx.triggered_id if hasattr(ctx, 'triggered_id') else None
@@ -877,7 +864,7 @@ def update_events(data):
     Input('news-interval', 'n_intervals')  # Also trigger on news interval
 )
 def update_news(data, news_intervals):
-    """Display 10 latest news from 1 week, sorted by newest first. Auto-refreshes every 2 min."""
+    """Display latest news from last week."""
     if not data:
         return html.P("Loading news...", className='text-muted small')
     
@@ -925,7 +912,7 @@ def update_news(data, news_intervals):
 
 
 def create_feature_importance_badge(results):
-    """Create badges for significant ARIMAX features."""
+    """Create badges showing significant ARIMAX features."""
     if 'ARIMAX' not in results or 'feature_importance' not in results['ARIMAX']:
         return None
         
@@ -1077,13 +1064,11 @@ def update_interp(data):
     return html.Div(alerts)
 
 
-# ============================================
-# NEWS SENTIMENT BREAKDOWN CALLBACK
-# ============================================
+# --- News Sentiment Breakdown ---
 
 @app.callback(Output('news-sentiment-stats', 'children'), Input('store', 'data'))
 def update_news_sentiment_stats(data):
-    """Display news sentiment breakdown with bullish/bearish/neutral counts."""
+    """Display news sentiment counts."""
     if not data:
         return html.P("Loading...", className='text-muted small')
     
@@ -1140,13 +1125,11 @@ def update_news_sentiment_stats(data):
     return html.P("No news sentiment data", className='text-muted small')
 
 
-# ============================================
-# SOCIAL/TWITTER SENTIMENT BREAKDOWN CALLBACK
-# ============================================
+# --- Social Sentiment Breakdown ---
 
 @app.callback(Output('social-sentiment-stats', 'children'), Input('store', 'data'))
 def update_social_sentiment_stats(data):
-    """Display social media sentiment breakdown with bullish/bearish/neutral counts."""
+    """Display social media sentiment counts."""
     if not data:
         return html.P("Loading...", className='text-muted small')
     
@@ -1211,13 +1194,11 @@ def update_social_sentiment_stats(data):
     return html.P("No social media data", className='text-muted small')
 
 
-# ============================================
-# SOCIAL SENTIMENT CHART CALLBACK
-# ============================================
+# --- Social Sentiment Chart ---
 
 @app.callback(Output('chart-social-sentiment', 'figure'), Input('store', 'data'))
 def update_social_sentiment_chart(data):
-    """Create a pie/donut chart showing social sentiment distribution."""
+    """Create social sentiment pie chart."""
     fig = go.Figure()
     
     if not data:
@@ -1272,13 +1253,11 @@ def update_social_sentiment_chart(data):
     return fig
 
 
-# ============================================
-# COMBINED SENTIMENT SUMMARY CALLBACK
-# ============================================
+# --- Combined Sentiment Summary ---
 
 @app.callback(Output('combined-sentiment-summary', 'children'), Input('store', 'data'))
 def update_combined_sentiment_summary(data):
-    """Display combined sentiment summary with interpretation."""
+    """Display overall sentiment summary with interpretation."""
     if not data:
         return html.P("Loading...", className='text-muted small')
     
@@ -1401,9 +1380,7 @@ def update_combined_sentiment_summary(data):
         return html.P(f"Error: {str(e)}", className='text-muted small')
 
 
-# ============================================
-# RUN
-# ============================================
+# --- Run ---
 
 if __name__ == '__main__':
     print("=" * 60)

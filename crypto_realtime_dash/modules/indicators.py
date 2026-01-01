@@ -9,51 +9,17 @@ from typing import Tuple
 
 
 def calculate_sma(df: pd.DataFrame, period: int = 14, column: str = 'close') -> pd.Series:
-    """
-    Calculate Simple Moving Average.
-    
-    Args:
-        df: DataFrame with price data
-        period: SMA period
-        column: Column to use
-    
-    Returns:
-        Series with SMA values
-    """
+    """Calculate Simple Moving Average."""
     return df[column].rolling(window=period, min_periods=1).mean()
 
 
 def calculate_ema(df: pd.DataFrame, period: int = 14, column: str = 'close') -> pd.Series:
-    """
-    Calculate Exponential Moving Average.
-    
-    Args:
-        df: DataFrame with price data
-        period: EMA period
-        column: Column to use
-    
-    Returns:
-        Series with EMA values
-    """
+    """Calculate Exponential Moving Average."""
     return df[column].ewm(span=period, adjust=False).mean()
 
 
 def calculate_rsi(df: pd.DataFrame, period: int = 14, column: str = 'close') -> pd.Series:
-    """
-    Calculate Relative Strength Index.
-    
-    Formula:
-        RSI = 100 - (100 / (1 + RS))
-        RS = Average Gain / Average Loss
-    
-    Args:
-        df: DataFrame with price data
-        period: RSI period
-        column: Column to use
-    
-    Returns:
-        Series with RSI values (0-100)
-    """
+    """Calculate RSI (0-100)."""
     delta = df[column].diff()
     
     gain = delta.where(delta > 0, 0)
@@ -78,19 +44,7 @@ def calculate_macd(
     signal: int = 9,
     column: str = 'close'
 ) -> Tuple[pd.Series, pd.Series, pd.Series]:
-    """
-    Calculate MACD (Moving Average Convergence Divergence).
-    
-    Args:
-        df: DataFrame with price data
-        fast: Fast EMA period
-        slow: Slow EMA period
-        signal: Signal line period
-        column: Column to use
-    
-    Returns:
-        Tuple of (MACD line, Signal line, Histogram)
-    """
+    """Calculate MACD, Signal, and Histogram."""
     ema_fast = df[column].ewm(span=fast, adjust=False).mean()
     ema_slow = df[column].ewm(span=slow, adjust=False).mean()
     
@@ -107,18 +61,7 @@ def calculate_bollinger_bands(
     std_dev: float = 2.0,
     column: str = 'close'
 ) -> Tuple[pd.Series, pd.Series, pd.Series]:
-    """
-    Calculate Bollinger Bands.
-    
-    Args:
-        df: DataFrame with price data
-        period: SMA period
-        std_dev: Standard deviation multiplier
-        column: Column to use
-    
-    Returns:
-        Tuple of (Middle band, Upper band, Lower band)
-    """
+    """Calculate Bollinger Bands (middle, upper, lower)."""
     sma = df[column].rolling(window=period, min_periods=1).mean()
     std = df[column].rolling(window=period, min_periods=1).std()
     
@@ -129,45 +72,18 @@ def calculate_bollinger_bands(
 
 
 def calculate_volatility(df: pd.DataFrame, period: int = 14, column: str = 'close') -> pd.Series:
-    """
-    Calculate volatility (rolling standard deviation of returns).
-    
-    Args:
-        df: DataFrame with price data
-        period: Rolling period
-        column: Column to use
-    
-    Returns:
-        Series with volatility values
-    """
+    """Calculate rolling volatility."""
     returns = df[column].pct_change()
     return returns.rolling(window=period, min_periods=1).std()
 
 
 def calculate_returns(df: pd.DataFrame, column: str = 'close') -> pd.Series:
-    """
-    Calculate daily returns.
-    
-    Args:
-        df: DataFrame with price data
-        column: Column to use
-    
-    Returns:
-        Series with returns
-    """
+    """Calculate daily returns."""
     return df[column].pct_change()
 
 
 def compute_all_indicators(df: pd.DataFrame) -> pd.DataFrame:
-    """
-    Compute all technical indicators.
-    
-    Args:
-        df: DataFrame with OHLCV data
-    
-    Returns:
-        DataFrame with all indicators added
-    """
+    """Add all technical indicators to DataFrame."""
     if df.empty or 'close' not in df.columns:
         return df
     
@@ -221,15 +137,7 @@ def compute_all_indicators(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def get_indicator_summary(df: pd.DataFrame) -> dict:
-    """
-    Get summary of current indicator values.
-    
-    Args:
-        df: DataFrame with indicators
-    
-    Returns:
-        Dictionary with summary
-    """
+    """Get latest indicator values."""
     if df.empty:
         return {}
     

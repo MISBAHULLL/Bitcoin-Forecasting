@@ -24,15 +24,7 @@ FUSION_WEIGHTS = {
 
 
 def compute_sentiment(text: str) -> Dict[str, float]:
-    """
-    Compute VADER sentiment scores for text.
-    
-    Args:
-        text: Text to analyze
-    
-    Returns:
-        Dictionary with neg, neu, pos, compound scores
-    """
+    """Get VADER sentiment scores for text."""
     if not text or not isinstance(text, str):
         return {'neg': 0.0, 'neu': 1.0, 'pos': 0.0, 'compound': 0.0}
     
@@ -40,15 +32,7 @@ def compute_sentiment(text: str) -> Dict[str, float]:
 
 
 def classify_sentiment(score: float) -> str:
-    """
-    Classify compound score into sentiment label.
-    
-    Args:
-        score: Compound sentiment score (-1 to 1)
-    
-    Returns:
-        'Bullish', 'Bearish', or 'Neutral'
-    """
+    """Classify score as Bullish/Bearish/Neutral."""
     if score >= BULLISH_THRESHOLD:
         return 'Bullish'
     elif score <= BEARISH_THRESHOLD:
@@ -68,15 +52,7 @@ def get_sentiment_color(label: str) -> str:
 
 
 def analyze_news_sentiment(df_news: pd.DataFrame) -> pd.DataFrame:
-    """
-    Analyze sentiment for news articles using VADER.
-    
-    Args:
-        df_news: DataFrame with 'title' and 'summary' columns
-    
-    Returns:
-        DataFrame with sentiment scores added
-    """
+    """Add VADER sentiment to news DataFrame."""
     if df_news.empty:
         return df_news
     
@@ -105,15 +81,7 @@ def analyze_news_sentiment(df_news: pd.DataFrame) -> pd.DataFrame:
 
 
 def analyze_tweets_sentiment(df_tweets: pd.DataFrame) -> pd.DataFrame:
-    """
-    Analyze sentiment for tweets using VADER.
-    
-    Args:
-        df_tweets: DataFrame with 'text' column
-    
-    Returns:
-        DataFrame with sentiment scores added
-    """
+    """Add VADER sentiment to tweets DataFrame."""
     if df_tweets.empty:
         return df_tweets
     
@@ -146,16 +114,7 @@ def analyze_tweets_sentiment(df_tweets: pd.DataFrame) -> pd.DataFrame:
 
 
 def aggregate_daily_sentiment(df: pd.DataFrame, source: str = 'news') -> pd.DataFrame:
-    """
-    Aggregate sentiment by day.
-    
-    Args:
-        df: DataFrame with sentiment data
-        source: Source type ('news' or 'twitter')
-    
-    Returns:
-        DataFrame with daily sentiment
-    """
+    """Aggregate sentiment scores by day."""
     if df.empty or 'sentiment_score' not in df.columns:
         return pd.DataFrame()
     
@@ -197,20 +156,7 @@ def fuse_sentiment(
     lunarcrush_sentiment: Optional[pd.DataFrame] = None,
     weights: Dict[str, float] = None
 ) -> pd.DataFrame:
-    """
-    Fuse sentiment from multiple sources.
-    
-    Formula: fused = (news * 0.4) + (twitter * 0.4) + (lunarcrush * 0.2)
-    
-    Args:
-        news_sentiment: Daily news sentiment
-        twitter_sentiment: Daily twitter sentiment
-        lunarcrush_sentiment: Daily LunarCrush sentiment (optional)
-        weights: Custom weights
-    
-    Returns:
-        DataFrame with fused sentiment
-    """
+    """Fuse sentiment: 40% news + 40% twitter + 20% lunarcrush."""
     weights = weights or FUSION_WEIGHTS
     
     # Start with news
