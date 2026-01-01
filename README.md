@@ -1,4 +1,4 @@
-# SINTA 1 Bitcoin Forecasting System
+# Bitcoin Forecasting System
 
 **Production-grade Bitcoin forecasting with ARIMA/ARIMAX, VADER sentiment, and real-time data.**
 
@@ -85,4 +85,4 @@ crypto_realtime_dash/
 
 ## License
 
-Academic Research Use - SINTA 1 Ready
+
