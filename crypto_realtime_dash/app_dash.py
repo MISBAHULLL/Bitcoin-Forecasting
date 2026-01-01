@@ -757,7 +757,7 @@ app.layout = dbc.Container([
     
     # Footer
     html.Footer([
-        html.P("SINTA 1 Bitcoin Forecasting System • Crypto Research Dashboard", 
+        html.P("Bitcoin Forecasting System • Crypto Research Dashboard", 
                className='text-muted text-center mb-0 py-3 small')
     ], className='border-top mt-3')
     
